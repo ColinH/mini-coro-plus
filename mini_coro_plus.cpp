@@ -77,7 +77,7 @@ namespace mcp
 
    extern "C"
    {
-      void mco_main( coroutine* );
+      void mini_coro_plus_main( coroutine* );
 
    }  // extern "C"
 
@@ -97,19 +97,19 @@ namespace mcp
 
    extern "C"
    {
-      void _mco_wrap_main();
-      int _mco_switch( single_context* from, single_context* to );
+      void _mini_coro_plus_wrap_main();
+      int _mini_coro_plus_switch( single_context* from, single_context* to );
 
 __asm__(
   ".text\n"
 #ifdef __APPLE__
-  ".globl __mco_switch\n"
-  "__mco_switch:\n"
+  ".globl __mini_coro_plus_switch\n"
+  "__mini_coro_plus_switch:\n"
 #else
-  ".globl _mco_switch\n"
-  ".type _mco_switch #function\n"
-  ".hidden _mco_switch\n"
-  "_mco_switch:\n"
+  ".globl _mini_coro_plus_switch\n"
+  ".type _mini_coro_plus_switch #function\n"
+  ".hidden _mini_coro_plus_switch\n"
+  "_mini_coro_plus_switch:\n"
 #endif
 
   "  mov x10, sp\n"
@@ -139,26 +139,26 @@ __asm__(
   "  mov sp, x10\n"
   "  br x11\n"
 #ifndef __APPLE__
-  ".size _mco_switch, .-_mco_switch\n"
+  ".size _mini_coro_plus_switch, .-_mini_coro_plus_switch\n"
 #endif
 );
 
 __asm__(
   ".text\n"
 #ifdef __APPLE__
-  ".globl __mco_wrap_main\n"
-  "__mco_wrap_main:\n"
+  ".globl __mini_coro_plus_wrap_main\n"
+  "__mini_coro_plus_wrap_main:\n"
 #else
-  ".globl _mco_wrap_main\n"
-  ".type _mco_wrap_main #function\n"
-  ".hidden _mco_wrap_main\n"
-  "_mco_wrap_main:\n"
+  ".globl _mini_coro_plus_wrap_main\n"
+  ".type _mini_coro_plus_wrap_main #function\n"
+  ".hidden _mini_coro_plus_wrap_main\n"
+  "_mini_coro_plus_wrap_main:\n"
 #endif
   "  mov x0, x19\n"
   "  mov x30, x21\n"
   "  br x20\n"
 #ifndef __APPLE__
-  ".size _mco_wrap_main, .-_mco_wrap_main\n"
+  ".size _mini_coro_plus_wrap_main, .-_mini_coro_plus_wrap_main\n"
 #endif
 );
 
@@ -169,10 +169,10 @@ __asm__(
       void init_context( void* co, single_context& ctx, void* stack_base, std::size_t stack_size )
       {
          ctx.x[ 0 ] = co;  // coroutine
-         ctx.x[ 1 ] = (void*)( mco_main );
+         ctx.x[ 1 ] = (void*)( mini_coro_plus_main );
          ctx.x[ 2 ] = (void*)( 0xdeaddeaddeaddead );  // Dummy return address.
          ctx.sp = (void*)( (std::size_t)stack_base + stack_size );
-         ctx.lr = (void*)( _mco_wrap_main );
+         ctx.lr = (void*)( _mini_coro_plus_wrap_main );
       }
 
    }  // namespace
@@ -190,37 +190,37 @@ __asm__(
 
    extern "C"
    {
-      void _mco_wrap_main();
-      int _mco_switch( single_context* from, single_context* to );
+      void _mini_coro_plus_wrap_main();
+      int _mini_coro_plus_switch( single_context* from, single_context* to );
 
 __asm__(
   ".text\n"
 #ifdef __MACH__ /* Darwin assembler */
-  ".globl __mco_wrap_main\n"
-  "__mco_wrap_main:\n"
+  ".globl __mini_coro_plus_wrap_main\n"
+  "__mini_coro_plus_wrap_main:\n"
 #else /* Linux assembler */
-  ".globl _mco_wrap_main\n"
-  ".type _mco_wrap_main @function\n"
-  ".hidden _mco_wrap_main\n"
-  "_mco_wrap_main:\n"
+  ".globl _mini_coro_plus_wrap_main\n"
+  ".type _mini_coro_plus_wrap_main @function\n"
+  ".hidden _mini_coro_plus_wrap_main\n"
+  "_mini_coro_plus_wrap_main:\n"
 #endif
   "  movq %r13, %rdi\n"
   "  jmpq *%r12\n"
 #ifndef __MACH__
-  ".size _mco_wrap_main, .-_mco_wrap_main\n"
+  ".size _mini_coro_plus_wrap_main, .-_mini_coro_plus_wrap_main\n"
 #endif
 );
 
 __asm__(
   ".text\n"
 #ifdef __MACH__ /* Darwin assembler */
-  ".globl __mco_switch\n"
-  "__mco_switch:\n"
+  ".globl __mini_coro_plus_switch\n"
+  "__mini_coro_plus_switch:\n"
 #else /* Linux assembler */
-  ".globl _mco_switch\n"
-  ".type _mco_switch @function\n"
-  ".hidden _mco_switch\n"
-  "_mco_switch:\n"
+  ".globl _mini_coro_plus_switch\n"
+  ".type _mini_coro_plus_switch @function\n"
+  ".hidden _mini_coro_plus_switch\n"
+  "_mini_coro_plus_switch:\n"
 #endif
   "  leaq 0x3d(%rip), %rax\n"
   "  movq %rax, (%rdi)\n"
@@ -241,7 +241,7 @@ __asm__(
   "  jmpq *(%rsi)\n"
   "  ret\n"
 #ifndef __MACH__
-  ".size _mco_switch, .-_mco_switch\n"
+  ".size _mini_coro_plus_switch, .-_mini_coro_plus_switch\n"
 #endif
 );
 
@@ -254,9 +254,9 @@ __asm__(
          stack_size -= 128;  // Reserve 128 bytes for the Red Zone space (System V AMD64 ABI).
          void** stack_high_ptr = (void**)( (std::size_t)stack_base + stack_size - sizeof( std::size_t ) );
          stack_high_ptr[ 0 ] = (void*)( 0xdeaddeaddeaddead );  // Dummy return address.
-         ctx.rip = (void*)( _mco_wrap_main );
+         ctx.rip = (void*)( _mini_coro_plus_wrap_main );
          ctx.rsp = (void*)( stack_high_ptr );
-         ctx.r12 = (void*)( _mco_main );
+         ctx.r12 = (void*)( _mini_coro_plus_main );
          ctx.r13 = co;
       }
 
@@ -494,7 +494,7 @@ __asm__(
          }
          set_running( this );
          m_state = state::RUNNING;
-         _mco_switch( &m_contexts.back_ctx, &m_contexts.this_ctx );
+         _mini_coro_plus_switch( &m_contexts.back_ctx, &m_contexts.this_ctx );
       }
 
       void yield_impl()
@@ -506,7 +506,7 @@ __asm__(
             prev_co->set_state( state::RUNNING );
          }
          set_running( prev_co );
-         _mco_switch( &m_contexts.this_ctx, &m_contexts.back_ctx );
+         _mini_coro_plus_switch( &m_contexts.this_ctx, &m_contexts.back_ctx );
       }
 
       std::exception_ptr m_exception;
@@ -523,7 +523,7 @@ __asm__(
 
    extern "C"
    {
-      void mco_main( coroutine* co )
+      void mini_coro_plus_main( coroutine* co )
       {
          try {
             co->execute();

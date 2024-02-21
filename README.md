@@ -4,10 +4,10 @@ C++ Mini Coroutine Library
 
 This library is based on [minicoro](https://github.com/edubart/minicoro) with two major changes.
 
- 1. It is refactored into C++17 gaining support for exceptions in coroutines.
+ 1. It is refactored into C++17 gaining support for exceptions.
  2. A lot of supported platforms and features have been (temporarily?) removed.
 
-The `coroutine` object itself is (TODO: mostly) exception safe and will clean up after itself in the case of exceptions.
+The `coroutine` object itself is (TODO: mostly) exception safe and will clean up after itself RAII-style.
 
 When an exception is thrown but not caught within a coroutine it terminates the coroutine (sets its state to `DEAD`) and the exception is propagated to the caller of `resume()`.
 There is nothing that prevents this from being arbitrarily nested, i.e. an exception flying across multiple `resume()` calls.
