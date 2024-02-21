@@ -385,8 +385,9 @@ __asm__(
       {
          const std::size_t stack = stack_size( size );
          const std::size_t total = stack + this_size();
+         const std::size_t alloc = align_forward( total, get_page_size() );
 
-         void *memory = ::mmap( nullptr, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0 );
+         void *memory = ::mmap( nullptr, total, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0 );
 
          if( memory == MAP_FAILED ) {
             throw std::bad_alloc();
@@ -515,16 +516,16 @@ __asm__(
 
 void coro_entry( mcp::coroutine* co )
 {
-  printf("coroutine 1\n");
-  throw std::runtime_error( "hallo" );
-  co->yield();
-  printf("coroutine 2\n");
+   printf("coroutine 1\n");
+   throw std::runtime_error( "hallo" );
+   co->yield();
+   printf("coroutine 2\n");
 }
 
 int main()
 {
    try {
-      const auto coro = mcp::coroutine::create( &coro_entry, 0 );
+      const auto coro = mcp::coroutine::create2( &coro_entry, 0 );
       printf("main 1 %d\n", int( coro->state() ) );
       coro->resume();
       printf("main 2 %d\n", int( coro->state() ) );
