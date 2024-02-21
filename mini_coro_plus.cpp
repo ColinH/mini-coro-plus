@@ -62,9 +62,18 @@
 #include <unistd.h>
 #include <utility>
 
+#include <iostream>  // TODO: Temporary.
+
 namespace mcp
 {
    class coroutine;
+
+   namespace
+   {
+      struct terminator
+      {};
+
+   }  // namespace
 
    extern "C"
    {
@@ -385,7 +394,6 @@ __asm__(
       {
          const std::size_t stack = stack_size( size );
          const std::size_t total = stack + this_size();
-         const std::size_t alloc = align_forward( total, get_page_size() );
 
          void *memory = ::mmap( nullptr, total, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0 );
 
@@ -398,6 +406,24 @@ __asm__(
             ptr->~coroutine();
             ::munmap( ptr, total );
          } );
+      }
+
+      void abort()
+      {
+         assert( m_previous == nullptr );
+         assert( m_state == state::SUSPENDED );
+
+         try {
+            throw terminator();
+         }
+         catch( const terminator& ) {
+            m_exception = std::current_exception();
+         }
+         resume_impl();
+
+         if( m_exception ) {
+            std::rethrow_exception( m_exception );
+         }
       }
 
       void resume()
@@ -419,6 +445,8 @@ __asm__(
          assert( running() == this );
          assert( m_state == state::RUNNING );
 
+         m_exception = std::exception_ptr();
+
          volatile std::size_t dummy;
 
          const std::size_t stack_addr = (std::size_t)&dummy;
@@ -430,6 +458,10 @@ __asm__(
          }
          m_state = st;
          yield_impl();
+
+         if( m_exception ) {
+            std::rethrow_exception( m_exception );
+         }
       }
 
    protected:
@@ -495,8 +527,14 @@ __asm__(
       {
          try {
             co->execute();
+            std::cerr << "finished" << std::endl;
+         }
+         catch( const terminator& ) {
+            std::cerr << "terminated" << std::endl;
+            co->set_exception( std::exception_ptr() );
          }
          catch( ... ) {
+            std::cerr << "errored" << std::endl;
             co->set_exception( std::current_exception() );
          }
          co->yield( state::DEAD );
@@ -517,7 +555,7 @@ __asm__(
 void coro_entry( mcp::coroutine* co )
 {
    printf("coroutine 1\n");
-   throw std::runtime_error( "hallo" );
+   // throw std::runtime_error( "hallo" );
    co->yield();
    printf("coroutine 2\n");
 }
@@ -529,7 +567,7 @@ int main()
       printf("main 1 %d\n", int( coro->state() ) );
       coro->resume();
       printf("main 2 %d\n", int( coro->state() ) );
-      coro->resume();
+      coro->abort();
       printf("main 3 %d\n", int( coro->state() ) );
    }
    catch( const std::exception& e ) {
