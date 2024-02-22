@@ -48,8 +48,9 @@
 // TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 // SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-#ifndef COLINH_MINI_CORO_PLUS_IPP
-#define COLINH_MINI_CORO_PLUS_IPP
+#ifdef COLINH_MINI_CORO_PLUS_IPP
+#error "This file must be included in precisely one .cpp file of the project!"
+#endif
 
 #include <atomic>
 #include <cassert>
@@ -61,6 +62,7 @@
 #include <memory>
 #include <new>
 #include <ostream>
+#include <stdexcept>
 #include <string_view>
 #include <sys/mman.h>
 #include <unistd.h>
@@ -342,7 +344,6 @@ __asm__(
             try {
                m_exception = std::make_exception_ptr( terminator() );
                resume_impl();
-               // TODO: What if m_exception is now non-null?
             }
             catch( ... ) {
                assert( !bool( "Exception while destroying coroutine!" ) );
@@ -419,10 +420,12 @@ __asm__(
          void abort()
          {
             assert( m_previous == nullptr );
-            assert( can_abort( m_state ) );
 
             if( nop_abort( m_state ) ){
                return;
+            }
+            if( m_state != state::SLEEPING ) {
+               throw std::logic_error( "Invalid state for coroutine abort!" );
             }
             m_exception = std::make_exception_ptr( terminator() );
 
@@ -436,8 +439,10 @@ __asm__(
          void resume()
          {
             assert( m_previous == nullptr );
-            assert( can_resume( m_state ) );
 
+            if( !can_resume( m_state ) ) {
+               throw std::logic_error( "Invalid state for coroutine resume!" );
+            }
             m_exception = std::exception_ptr();
 
             resume_impl();
@@ -450,8 +455,10 @@ __asm__(
          void yield( const mcp::state st )
          {
             assert( running() == this );
-            assert( can_yield( m_state ) );
 
+            if( !can_yield( m_state ) ) {
+               throw std::logic_error( "Invalid state for coroutine yield!" );
+            }
             m_exception = std::exception_ptr();
 
             volatile std::size_t dummy;
@@ -587,4 +594,4 @@ __asm__(
 
 }  // namespace mcp
 
-#endif
+#define COLINH_MINI_CORO_PLUS_IPP
