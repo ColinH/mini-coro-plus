@@ -295,6 +295,7 @@ __asm__(
          current_coroutine.store( co );  // Can be nullptr.
       }
 
+      inline constexpr std::size_t align_quantum = 16;
       inline constexpr std::size_t magic_number = 0x7E3CB1A9;
       inline constexpr std::size_t min_stack_size = 16384;
       inline constexpr std::size_t default_stack_size = 56 * 1024;  // 2040 * 1024 for VMEM
@@ -309,6 +310,9 @@ __asm__(
          return ( addr + ( align - 1 ) ) & ~( align - 1 );
       }
 
+      static_assert( align_forward( min_stack_size, align_quantum ) == min_stack_size );
+      static_assert( align_forward( default_stack_size, align_quantum ) == default_stack_size );
+
       [[nodiscard]] constexpr std::size_t calculate_stack_size( const std::size_t size ) noexcept
       {
          if( size == 0 ) {
@@ -317,7 +321,7 @@ __asm__(
          if( size < min_stack_size ) {
             return min_stack_size;
          }
-         return align_forward( size, 16 );
+         return align_forward( size, align_quantum );
       }
 
       struct terminator {};
@@ -485,12 +489,12 @@ __asm__(
 
          [[nodiscard]] static std::size_t this_size() noexcept
          {
-            return align_forward( sizeof( implementation ), 16 );
+            return align_forward( sizeof( implementation ), align_quantum );
          }
 
          [[nodiscard]] static std::size_t stack_size( const std::size_t size ) noexcept
          {
-            return align_forward( calculate_stack_size( size ), 16 );
+            return align_forward( calculate_stack_size( size ), align_quantum );
          }
 
          void resume_impl() noexcept
@@ -536,6 +540,7 @@ __asm__(
       {
          try {
             co->execute();
+            co->set_exception( std::exception_ptr() );
          }
          catch( const internal::terminator& ) {
             co->set_exception( std::exception_ptr() );
