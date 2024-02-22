@@ -26,10 +26,13 @@ DEPENDS := $(SOURCES:./%.cpp=build/dep/%.d)
 BINARIES := $(SOURCES:./%.cpp=build/bin/%)
 
 .PHONY: all
- all: compile
+ all: compile tests
 
 .PHONY: compile
 compile: $(BINARIES)
+
+tests: build/bin/tests
+	build/bin/tests
 
 .PHONY: clean
 clean:
