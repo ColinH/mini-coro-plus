@@ -56,7 +56,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
-#include <cstring>
 #include <exception>
 #include <functional>
 #include <memory>
@@ -88,10 +87,10 @@ namespace mcp
    {
       struct single_context
       {
-         void *x[ 12 ];  // x19-x30
-         void *sp;
-         void *lr;
-         void *d[ 8 ];  // d8-d15
+         void *x[ 12 ] = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr };
+         void* sp = nullptr;
+         void* lr = nullptr;
+         void* d[ 8 ] = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr };
       };
 
    }  // namespace internal
@@ -184,7 +183,14 @@ __asm__(
    {
       struct single_context
       {
-         void *rip, *rsp, *rbp, *rbx, *r12, *r13, *r14, *r15;
+         void* rip = nullptr;
+         void* rsp = nullptr;
+         void* rbp = nullptr;
+         void* rbx = nullptr;
+         void* r12 = nullptr;
+         void* r13 = nullptr;
+         void* r14 = nullptr;
+         void* r15 = nullptr;
       };
 
    }  // namespace internal
@@ -271,11 +277,6 @@ __asm__(
    {
       struct double_context
       {
-         double_context() noexcept
-         {
-            std::memset( this, 0, sizeof( double_context ) );  // TODO?
-         }
-
          single_context this_ctx;
          single_context back_ctx;
       };
