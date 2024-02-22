@@ -419,9 +419,8 @@ __asm__(
 
          void abort()
          {
-            assert( m_previous == nullptr );
-
             if( nop_abort( m_state ) ){
+               m_state = state::COMPLETED;
                return;
             }
             if( m_state != state::SLEEPING ) {
@@ -438,12 +437,10 @@ __asm__(
 
          void resume()
          {
-            assert( m_previous == nullptr );
-
             if( !can_resume( m_state ) ) {
                throw std::logic_error( "Invalid state for coroutine resume!" );
             }
-            m_exception = std::exception_ptr();
+            assert( m_previous == nullptr );
 
             resume_impl();
 
@@ -454,13 +451,12 @@ __asm__(
 
          void yield( const mcp::state st )
          {
-            assert( running() == this );
-
+            if( running() != this ) {
+               throw std::logic_error( "Invalid coroutine for yield!" );
+            }
             if( !can_yield( m_state ) ) {
                throw std::logic_error( "Invalid state for coroutine yield!" );
             }
-            m_exception = std::exception_ptr();
-
             volatile std::size_t dummy;
 
             const std::size_t stack_addr = (std::size_t)&dummy;
