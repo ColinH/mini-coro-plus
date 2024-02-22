@@ -340,6 +340,8 @@ __asm__(
                   return;
                case state::RUNNING:
                case state::CALLING:
+                  // This should never happen unless somebody seriously messed
+                  // up the lifetime of the coroutine wrt. the calling code.
                   assert( !bool( "Destroying active coroutine!" ) );
                   std::terminate();
                case state::SLEEPING:
@@ -350,6 +352,8 @@ __asm__(
                resume_impl();
             }
             catch( ... ) {
+               // This should never happen unless the cleanup in the
+               // coroutine throws an exception from a destructor.
                assert( !bool( "Exception while destroying coroutine!" ) );
                std::terminate();
             }
@@ -368,11 +372,6 @@ __asm__(
             return m_state;
          }
 
-         [[nodiscard]] const std::exception_ptr& exception() const noexcept
-         {
-            return m_exception;
-         }
-
          void set_state( const mcp::state st ) noexcept
          {
             m_state = st;
@@ -385,7 +384,7 @@ __asm__(
 
          [[nodiscard]] static std::shared_ptr< implementation > create( std::function< void() > function, const std::size_t size )
          {
-            const std::size_t stack = stack_size( size );
+            const std::size_t stack = calculate_stack_size( size );
             const std::size_t total = stack + this_size();
 
             void* memory = std::calloc( 1, total );
@@ -403,7 +402,7 @@ __asm__(
 
          [[nodiscard]] static std::shared_ptr< implementation > create2( std::function< void() > function, const std::size_t size )
          {
-            const std::size_t stack = stack_size( size );
+            const std::size_t stack = calculate_stack_size( size );
             const std::size_t total = stack + this_size();
 
             void *memory = ::mmap( nullptr, total, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0 );
@@ -430,6 +429,9 @@ __asm__(
             if( m_state != state::SLEEPING ) {
                throw std::logic_error( "Invalid state for coroutine abort!" );
             }
+            assert( !m_exception );
+            assert( m_previous == nullptr );
+
             m_exception = std::make_exception_ptr( terminator() );
 
             resume_impl();
@@ -444,6 +446,7 @@ __asm__(
             if( !can_resume( m_state ) ) {
                throw std::logic_error( "Invalid state for coroutine resume!" );
             }
+            assert( !m_exception );
             assert( m_previous == nullptr );
 
             resume_impl();
@@ -490,11 +493,6 @@ __asm__(
          [[nodiscard]] static std::size_t this_size() noexcept
          {
             return align_forward( sizeof( implementation ), align_quantum );
-         }
-
-         [[nodiscard]] static std::size_t stack_size( const std::size_t size ) noexcept
-         {
-            return align_forward( calculate_stack_size( size ), align_quantum );
          }
 
          void resume_impl() noexcept
@@ -560,11 +558,6 @@ __asm__(
       }
    }
 
-   state running_state() noexcept
-   {
-      return internal::running()->state();
-   }
-
    coroutine::coroutine( std::function< void() >&& f, const std::size_t stack_size )
       : m_impl( internal::implementation::create2( std::move( f ), stack_size ) )
    {}
@@ -575,12 +568,17 @@ __asm__(
 
    mcp::state coroutine::state() const noexcept
    {
-      return m_impl->state();
+      return bool( m_impl ) ? m_impl->state() : state::COMPLETED;
    }
 
    void coroutine::abort()
    {
       m_impl->abort();
+   }
+
+   void coroutine::clear()
+   {
+      std::shared_ptr< internal::implementation >( std::move( m_impl ) )->abort();
    }
 
    void coroutine::resume()
@@ -592,6 +590,9 @@ __asm__(
    {
       m_impl->yield( mcp::state::SLEEPING );
    }
+
+   // TODO: A function to obtain how much stack is currently used in a running coroutine?
+   // TODO: A function to obtain how much stack is currently used in a suspended coroutine?
 
 }  // namespace mcp
 

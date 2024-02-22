@@ -118,8 +118,6 @@ namespace mcp
 
    void yield_running();
 
-   [[nodiscard]] state running_state() noexcept;
-
    class coroutine
    {
    public:
@@ -129,10 +127,9 @@ namespace mcp
       [[nodiscard]] mcp::state state() const noexcept;
 
       void abort();
+      void clear();
       void resume();
       void yield();
-
-      // TODO: A function to obtain how much stack is currently used in a suspended coroutine?
 
    protected:
       std::shared_ptr< internal::implementation > m_impl;

@@ -6,56 +6,58 @@ Based on the context switching code copied from [minicoro](https://github.com/ed
 
 ### Status
 
-Not quite "ready for action" yet.
-Once all details are finalised I'll write some unit tests and make a release.
+Not quite finished yet, but a first set of unit tests shows that all the basics are functional.
 
 Currently only x86-64 and AArch64 are supported and only on Posix-compatible platforms.
 It might also work on Windows.
 
-### Behaviour
+### Basics
 
-A coroutine is created with a callable function suitable for `std::function< void() >` and optionally a stack size.
+A coroutine is created with a `std::function< void() >`, and optionally a stack size.
 
-A newly created coroutine sits in state `STARTING` and does **not** jump into its callable function.
+A newly created coroutine sits in state `STARTING` and does **not** implicitly jump into its function.
 
-A `resume` initially starts or later resumes a coroutine (again).
-This puts the coroutine into state `RUNNING`.
+Running the coroutine function is achieve by calling `resume()` from outside the coroutine which puts the coroutine into state `RUNNING`.
 
-The call to `resume` will return when the coroutine finishes execution and is `COMPLETED`, when the coroutine performs a `yield` into state `SLEEPING`, or when the coroutine throws an exception.
+This call to `resume()` will return when one of the following conditions is met:
 
-In the exception case the `resume` call will appear to throw the exception thrown from within the coroutine.
-The coroutine that threw an exception is put into state `COMPLETED`.
+ 1. The coroutine function returns. The coroutine enters state `COMPLETED` and may **not** be resumed again.
+ 2. The coroutine function calls `yield()`. The coroutine enters state `SLEEPING` and can be resumed again later. Resuming continues execution of the coroutine function after the aforementioned  `yield()`.
+ 3. The coroutine function throws an exception. The coroutine enters state `COMPLETED` and may **not** be resumed again. In this case the call to `resume()` will throw the coroutine's exception rather than returning normally.
 
-If `resume` is performed by another coroutine that was itself `RUNNING` then this calling coroutine is put into state `CALLING`.
+If the `resume()` is performed by another coroutine (itself in `RUNNING` state) then this calling coroutine transitions to state `CALLING`.
 
-When a coroutine is destroyed in state `SLEEPING` a final `resume` into the coroutine is required.
-It throws a special terminator exception from the `yield` that suspended the coroutine into the `SLEEPING` state in order to clean up the coroutine by calling the destructors of all local objects currently on the stack.
+It is an error to call any function other than `state()` on a coroutine in `COMPLETED` state.
 
-When a coroutine is destroyed in states `STARTING` or `COMPLETED` nothing special happens.
+It is an error to call `abort()` on a coroutine that is in `RUNNING` or `CALLING` state.
 
-A coroutine object can **not** be destroyed in states `RUNNING` or `CALLING`.
+### Destroy
 
-Calling `abort` on a coroutine similarly performs the same operation without actually destroying the coroutine object yet.
+Destroying a coroutine object in states `RUNNING` or `CALLING` is an error.
 
-It is an error to call any function other than `state` on a coroutine in `COMPLETED` state.
+Destroying a coroutine object in states `STARTING` or `COMPLETED` does nothing special.
 
-The coroutine object is a handle to the actual coroutine and has **pointer semantics**.
+Destroying a coroutine in state `SLEEPING` performs an implicit `resume()` into the coroutine in order to clean up the coroutine by destroying all local objects currently on the coroutine stack.
+This cleanup is achieved by throwing a dedicated exception from the `yield()` call inside the coroutine, the `yield()` call that last put the coroutine into `SLEEPING` state.
+
+In order to not interfere with the cleanup, coroutine functions must take care to **not** accidentally catch and ignore exceptions of type `mcp::internal::terminator`!
+These exceptions must escape from the coroutine function.
+
+Calling `abort()` on a coroutine performs the cleanup for coroutines in state `SLEEPING` but not much else.
 
 ### Interface
 
 ```c++
 enum class state : std::uint8_t
 {
-   STARTING,  // Created but has not started execution.
-   RUNNING,   // Has started execution and is executing this very moment.
-   SLEEPING,  // Has started execution but is not curently executing.
-   CALLING,   // Has started execution but has called another coroutine.
-   COMPLETED  // Has finished execution and MUST NOT be resumed again.
+   STARTING,  // Created without entering the coroutine function.
+   RUNNING,   // Entered the coroutine function and currently running it.
+   SLEEPING,  // Entered the coroutine which then yielded back out again.
+   CALLING,   // Entered the coroutine which then resumed a different one.
+   COMPLETED  // Finished the coroutine function to completion.
 };
 
 void yield_running();  // Global function to yield the current coroutine, if any.
-
-[[nodiscard]] state running_state() noexcept;
 
 class coroutine
 {
