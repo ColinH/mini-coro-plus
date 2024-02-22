@@ -217,7 +217,7 @@ namespace mcp::test
          coroutine coro( [ & ](){
             cycle y( c );
             coro.yield();
-            c == 42;
+            c = 42;
          } );
          MCP_TEST_ASSERT( c == 0 );
          coro.resume();
