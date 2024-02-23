@@ -2,20 +2,61 @@
 
 Minimalistic asymmetric stackful [coroutines](https://en.wikipedia.org/wiki/Coroutine) for C++17.
 
-Based on the context switching code copied from [minicoro](https://github.com/edubart/minicoro) C library.
+Based on the design and implementation of [minicoro](https://github.com/edubart/minicoro) by Eduardo Bart.
+Uses assembly context switching code from (LuaCoco)[https://coco.luajit.org] by Mike Pall.
 
-### Status
+## Status
 
-Not quite finished yet, but a first set of unit tests shows that all the basics are functional.
+Not quite finished yet, but the first unit tests all run successfully.
 
 Currently only x86-64 and AArch64 are supported and only on Posix-compatible platforms.
-It might also work on Windows.
 
-### Basics
+## Hello
+
+A traditional "hello world" example.
+
+The `.ipp` file contains the library implementation and must be included in exactly one translation unit of the project.
+The `.hpp` file contains the interface and can be included as often as required.
+
+```c++
+#include <iostream>
+
+#include "mini_coro_plus.hpp"
+#include "mini_coro_plus.ipp"
+
+void function()
+{
+   std::cout << "Hello, ";
+   mcp::yield_running();
+   std::cout << "World!\n";
+}
+
+int main()
+{
+   mcp::coroutine coro( function );
+   coro.resume();
+   coro.resume();
+   return 0;
+}
+```
+
+A [lambda expression](https://en.cppreference.com/w/cpp/language/lambda) can be used as first argument to the coroutine constructor.
+
+How to compile the example when not using the included `Makefile`.
+
+```
+$ g++ -std=c++17 -O3 -Wall -Wextra hello.cpp -o hello
+$ ./hello
+Hello, World!
+```
+
+## Create
 
 A coroutine is created with a `std::function< void() >`, and optionally a stack size.
 
 A newly created coroutine sits in state `STARTING` and does **not** implicitly jump into its function.
+
+## Resume
 
 Running the coroutine function is achieve by calling `resume()` from outside the coroutine which puts the coroutine into state `RUNNING`.
 
@@ -31,7 +72,7 @@ It is an error to call any function other than `state()` on a coroutine in `COMP
 
 It is an error to call `abort()` on a coroutine that is in `RUNNING` or `CALLING` state.
 
-### Destroy
+## Destroy
 
 Destroying a coroutine object in states `RUNNING` or `CALLING` is an error.
 
@@ -45,7 +86,10 @@ These exceptions must escape from the coroutine function.
 
 Calling `abort()` on a coroutine performs the cleanup for coroutines in state `SLEEPING` but not much else.
 
-### Interface
+## Interface
+
+This library resides in `namespace mcp`.
+The namespace is omitted from the following exposition.
 
 ```c++
 enum class state : std::uint8_t
@@ -57,7 +101,13 @@ enum class state : std::uint8_t
    COMPLETED  // Finished the coroutine function to completion.
 };
 
-void yield_running();  // Global function to yield the current coroutine, if any.
+[[nodiscard]] constexpr bool can_abort( const state ) noexcept;
+[[nodiscard]] constexpr bool can_resume( const state ) noexcept;
+[[nodiscard]] constexpr bool can_yield( const state ) noexcept;
+
+[[nodiscard]] constexpr std::string_view to_string( const state ) noexcept;
+
+std::ostream& operator<<( std::ostream&, const state );
 
 class coroutine
 {
@@ -68,28 +118,34 @@ public:
    [[nodiscard]] mcp::state state() const noexcept;
 
    void abort();  // Called from outside the coroutine function.
+   void clear();  // Called from outside the coroutine function.
    void resume();  // Called from outside the coroutine function.
    void yield();  // Called from within the coroutine function.
 
 protected:
    std::shared_ptr< internal::implementation > m_impl;
 };
+
+void yield_running();  // Global function to yield the current coroutine, if any.
 ```
 
-### Development
+## Multithreading
 
-This little project is my answer to "Is it possible to make minicoro C++ exception compatible?"
+This library is essentially thread agnostic and compatible with multi-threaded applications.
 
-The first step was to strip minicoro down to barely "minimum viable product" levels.
-Removed parts include asan and tsan support, the extra stack for argument passing, and most of the supported platforms.
+In a multi-threaded application it is safe for multiple threads to create and run coroutines.
+The global `yield_running()` function applies to any coroutine running on the current thread.
 
-The second step was the "C++-ification" of the remaining source code.
-This includes some small changes, like using `enum class` for the state `enum`, to large ones, like using exceptions instead of return codes for reporting errors.
+Coroutines can be created on one thread and resumed on a different thread.
+The usual care needs to be taken regarding concurrent access to shared data and the lifecycle of shared data.
 
-The third step was to add exception support, allowing coroutines to throw exceptions that propagate to the caller.
-And the coroutine object itself uses RAII to behave well in the presence of exceptions.
+A coroutine object **must not** be used in multiple threads simultaneously as bad things **will** happen.
 
-Over time some of the removed features might get added again as the need arises.
+## Development
+
+This project was started to answer to investigate whether it is possible to make [minicoro](https://github.com/edubart/minicoro) more C++ compatible.
+Two of the main points were (a) what is needed to make C++ exception propagate from inside a coroutine to outside, and (b) can the coroutine object itself use RAII to clean up after itself?
+Turns out, the answer is "yes", however the necessary changes are quite fundamental and not well suited for additional or optional inclusion in minicoro.
 
 ---
 

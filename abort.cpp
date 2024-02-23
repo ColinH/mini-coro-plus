@@ -10,9 +10,9 @@
 
 void function()
 {
-   std::cout << "Hello, ";
+   std::cout << "This is printed.\n";
    mcp::yield_running();
-   std::cout << "World!\n";
+   std::cout << "This should NOT be printed!\n";
 }
 
 int main()
@@ -21,7 +21,7 @@ int main()
    assert( coro.state() == mcp::state::STARTING );
    coro.resume();
    assert( coro.state() == mcp::state::SLEEPING );
-   coro.resume();
+   coro.abort();
    assert( coro.state() == mcp::state::COMPLETED );
    return 0;
 }

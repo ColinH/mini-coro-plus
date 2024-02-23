@@ -8,11 +8,29 @@
 #include "mini_coro_plus.hpp"
 #include "mini_coro_plus.ipp"
 
+const char* suffix = "not called!";
+
+struct raii
+{
+   raii() noexcept = default;
+
+   ~raii()
+   {
+      suffix = "called.";
+   }
+
+   raii( raii&& ) = delete;
+   raii( const raii& ) = delete;
+
+   void operator=( raii&& ) = delete;
+   void operator=( const raii& ) = delete;
+};
+
 void function()
 {
-   std::cout << "Hello, ";
+   raii r;
    mcp::yield_running();
-   std::cout << "World!\n";
+   std::cout << "This should NOT be printed!\n";
 }
 
 int main()
@@ -21,7 +39,8 @@ int main()
    assert( coro.state() == mcp::state::STARTING );
    coro.resume();
    assert( coro.state() == mcp::state::SLEEPING );
-   coro.resume();
+   coro.abort();
    assert( coro.state() == mcp::state::COMPLETED );
+   std::cout << "The destructor was " << suffix << std::endl;
    return 0;
 }

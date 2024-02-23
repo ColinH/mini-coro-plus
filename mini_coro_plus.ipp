@@ -61,12 +61,12 @@
 #include <functional>
 #include <memory>
 #include <new>
-#include <ostream>
 #include <stdexcept>
 #include <string_view>
+#include <utility>
+
 #include <sys/mman.h>
 #include <unistd.h>
-#include <utility>
 
 #include "mini_coro_plus.hpp"
 
@@ -77,16 +77,12 @@ namespace mcp
       return os << to_string( st );
    }
 
-   extern "C"
-   {
-      void mini_coro_plus_main( internal::implementation* );
-
-   }  // extern "C"
-
 #if defined( __aarch64__ )
 
    namespace internal
    {
+      void mini_coro_plus_main( implementation* );
+
       struct single_context
       {
          void *x[ 12 ] = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr };
@@ -168,10 +164,10 @@ __asm__(
 
    namespace internal
    {
-      void init_context( void* co, single_context& ctx, void* stack_base, std::size_t stack_size )
+      void init_context( void* co, void* main, single_context& ctx, void* stack_base, std::size_t stack_size )
       {
          ctx.x[ 0 ] = co;  // coroutine
-         ctx.x[ 1 ] = (void*)( mini_coro_plus_main );
+         ctx.x[ 1 ] = main;
          ctx.x[ 2 ] = (void*)( 0xdeaddeaddeaddead );  // Dummy return address.
          ctx.sp = (void*)( (std::size_t)stack_base + stack_size );
          ctx.lr = (void*)( _mini_coro_plus_wrap_main );
@@ -183,6 +179,8 @@ __asm__(
 
    namespace internal
    {
+      void mini_coro_plus_main( implementation* );
+
       struct single_context
       {
          void* rip = nullptr;
@@ -258,14 +256,14 @@ __asm__(
 
    namespace
    {
-      void init_context( void* co, internal::single_context& ctx, void* stack_base, std::size_t stack_size )
+      void init_context( void* co, void* main, internal::single_context& ctx, void* stack_base, std::size_t stack_size )
       {
          stack_size -= 128;  // Reserve 128 bytes for the Red Zone space (System V AMD64 ABI).
          void** stack_high_ptr = (void**)( (std::size_t)stack_base + stack_size - sizeof( std::size_t ) );
          stack_high_ptr[ 0 ] = (void*)( 0xdeaddeaddeaddead );  // Dummy return address.
          ctx.rip = (void*)( _mini_coro_plus_wrap_main );
          ctx.rsp = (void*)( stack_high_ptr );
-         ctx.r12 = (void*)( mini_coro_plus_main );
+         ctx.r12 = main;
          ctx.r13 = co;
       }
 
@@ -282,6 +280,11 @@ __asm__(
          single_context this_ctx;
          single_context back_ctx;
       };
+
+      [[nodiscard]] constexpr bool nop_abort( const state st ) noexcept
+      {
+         return ( st == state::STARTING ) || ( st == state::COMPLETED );
+      }
 
       thread_local std::atomic< implementation* > current_coroutine = { nullptr };
 
@@ -474,6 +477,7 @@ __asm__(
                throw std::runtime_error( "Coroutine stack overflow detected after the fact!" );
             }
             m_state = st;
+
             yield_impl();
 
             if( m_exception ) {
@@ -487,7 +491,22 @@ __asm__(
               m_stack_base( reinterpret_cast< char* >( this ) + this_size() ),
               m_stack_size( stack )
          {
-            init_context( this, m_contexts.this_ctx, m_stack_base, m_stack_size );
+            init_context( this, reinterpret_cast< void* >( &main ), m_contexts.this_ctx, m_stack_base, m_stack_size );
+         }
+
+         static void main( implementation* co )
+         {
+            try {
+               co->execute();
+               co->set_exception( std::exception_ptr() );
+            }
+            catch( const terminator& ) {
+               co->set_exception( std::exception_ptr() );
+            }
+            catch( ... ) {
+               co->set_exception( std::current_exception() );
+            }
+            co->yield( state::COMPLETED );
          }
 
          [[nodiscard]] static std::size_t this_size() noexcept
@@ -505,6 +524,8 @@ __asm__(
             }
             set_running( this );
             m_state = state::RUNNING;
+            // atomic_signal_fence( std::memory_order::memory_order_seq_cst );
+            atomic_thread_fence( std::memory_order::memory_order_seq_cst );
             _mini_coro_plus_switch( &m_contexts.back_ctx, &m_contexts.this_ctx );
          }
 
@@ -517,6 +538,8 @@ __asm__(
                prev_co->set_state( state::RUNNING );
             }
             set_running( prev_co );
+            // atomic_signal_fence( std::memory_order::memory_order_seq_cst );
+            atomic_thread_fence( std::memory_order::memory_order_seq_cst );
             _mini_coro_plus_switch( &m_contexts.this_ctx, &m_contexts.back_ctx );
          }
 
@@ -531,25 +554,6 @@ __asm__(
       };
 
    }  // namespace internal
-
-   extern "C"
-   {
-      void mini_coro_plus_main( internal::implementation* co )
-      {
-         try {
-            co->execute();
-            co->set_exception( std::exception_ptr() );
-         }
-         catch( const internal::terminator& ) {
-            co->set_exception( std::exception_ptr() );
-         }
-         catch( ... ) {
-            co->set_exception( std::current_exception() );
-         }
-         co->yield( state::COMPLETED );
-      }
-
-   }  // extern "C"
 
    void yield_running()
    {

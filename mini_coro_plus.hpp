@@ -70,23 +70,16 @@ namespace mcp
 
    enum class state : std::uint8_t
    {
-      STARTING,  // Created but has not started execution.
-      RUNNING,   // Has started execution and is executing this very moment.
-      SLEEPING,  // Has started execution but is not curently executing.
-      CALLING,   // Has started execution but has called another coroutine.
-      COMPLETED  // Has finished execution and MUST NOT be resumed again.
+      STARTING,  // Created without entering the coroutine function.
+      RUNNING,   // Entered the coroutine function and currently running it.
+      SLEEPING,  // Entered the coroutine which then yielded back out again.
+      CALLING,   // Entered the coroutine which then resumed a different one.
+      COMPLETED  // Finished the coroutine function to completion.
    };
-
-   std::ostream& operator<<( std::ostream&, const state );
 
    [[nodiscard]] constexpr bool can_abort( const state st ) noexcept
    {
       return ( st == state::STARTING ) || ( st == state::SLEEPING ) || ( st == state::COMPLETED );
-   }
-
-   [[nodiscard]] constexpr bool nop_abort( const state st ) noexcept
-   {
-      return ( st == state::STARTING ) || ( st == state::COMPLETED );
    }
 
    [[nodiscard]] constexpr bool can_resume( const state st ) noexcept
@@ -101,22 +94,24 @@ namespace mcp
 
    [[nodiscard]] constexpr std::string_view to_string( const state st ) noexcept
    {
+      using namespace std::literals::string_view_literals;
+
       switch( st ) {
          case state::STARTING:
-            return "starting";
+            return "starting"sv;
          case state::RUNNING:
-            return "running";
+            return "running"sv;
          case state::SLEEPING:
-            return "sleeping";
+            return "sleeping"sv;
          case state::CALLING:
-            return "calling";
+            return "calling"sv;
          case state::COMPLETED:
-            return "completed";
+            return "completed"sv;
       }
-      return "invalid";
+      return "invalid"sv;
    }
 
-   void yield_running();
+   std::ostream& operator<<( std::ostream&, const state );
 
    class coroutine
    {
@@ -126,14 +121,16 @@ namespace mcp
 
       [[nodiscard]] mcp::state state() const noexcept;
 
-      void abort();
-      void clear();
-      void resume();
-      void yield();
+      void abort();  // Called from outside the coroutine function.
+      void clear();  // Called from outside the coroutine function.
+      void resume();  // Called from outside the coroutine function.
+      void yield();  // Called from inside the coroutine function.
 
    protected:
       std::shared_ptr< internal::implementation > m_impl;
    };
+
+   void yield_running();  // Global function to yield the current coroutine, if any.
 
 }  // namespace mcp
 
