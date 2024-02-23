@@ -77,11 +77,10 @@ namespace mcp
       return os << to_string( st );
    }
 
-#if defined( __aarch64__ )
-
    namespace internal
    {
-      void mini_coro_plus_main( implementation* );
+
+#if defined( __aarch64__ )
 
       struct single_context
       {
@@ -91,12 +90,10 @@ namespace mcp
          void* d[ 8 ] = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr };
       };
 
-   }  // namespace internal
-
-   extern "C"
-   {
-      void _mini_coro_plus_wrap_main();
-      int _mini_coro_plus_switch( internal::single_context* from, internal::single_context* to );
+      extern "C"
+      {
+         void _mini_coro_plus_wrap_main();
+         int _mini_coro_plus_switch( internal::single_context* from, internal::single_context* to );
 
 __asm__(
   ".text\n"
@@ -160,10 +157,8 @@ __asm__(
 #endif
 );
 
-   }  // extern "C"
+      }  // extern "C"
 
-   namespace internal
-   {
       void init_context( void* co, void* main, single_context& ctx, void* stack_base, std::size_t stack_size )
       {
          ctx.x[ 0 ] = co;  // coroutine
@@ -173,13 +168,7 @@ __asm__(
          ctx.lr = (void*)( _mini_coro_plus_wrap_main );
       }
 
-   }  // namespace  // internal
-
 #elif defined(__x86_64__) || defined(_M_X64)
-
-   namespace internal
-   {
-      void mini_coro_plus_main( implementation* );
 
       struct single_context
       {
@@ -193,12 +182,10 @@ __asm__(
          void* r15 = nullptr;
       };
 
-   }  // namespace internal
-
-   extern "C"
-   {
-      void _mini_coro_plus_wrap_main();
-      int _mini_coro_plus_switch( internal::single_context* from, internal::single_context* to );
+      extern "C"
+      {
+         void _mini_coro_plus_wrap_main();
+         int _mini_coro_plus_switch( internal::single_context* from, internal::single_context* to );
 
 __asm__(
   ".text\n"
@@ -252,10 +239,8 @@ __asm__(
 #endif
 );
 
-   }  // extern "C"
+      }  // extern "C"
 
-   namespace
-   {
       void init_context( void* co, void* main, internal::single_context& ctx, void* stack_base, std::size_t stack_size )
       {
          stack_size -= 128;  // Reserve 128 bytes for the Red Zone space (System V AMD64 ABI).
@@ -267,14 +252,10 @@ __asm__(
          ctx.r13 = co;
       }
 
-   }  // namespace
-
 #else
 #error "Unsupported architecture!"
 #endif
 
-   namespace internal
-   {
       struct double_context
       {
          single_context this_ctx;
@@ -286,17 +267,7 @@ __asm__(
          return ( st == state::STARTING ) || ( st == state::COMPLETED );
       }
 
-      thread_local std::atomic< implementation* > current_coroutine = { nullptr };
-
-      implementation* running() noexcept
-      {
-         return current_coroutine.load();  // Can be nullptr!
-      }
-
-      void set_running( implementation* co ) noexcept
-      {
-         current_coroutine.store( co );  // Can be nullptr.
-      }
+      thread_local std::atomic< implementation* > running_coroutine = { nullptr };
 
       inline constexpr std::size_t align_quantum = 16;
       inline constexpr std::size_t magic_number = 0x7E3CB1A9;
@@ -461,7 +432,7 @@ __asm__(
 
          void yield( const mcp::state st )
          {
-            if( running() != this ) {
+            if( running_coroutine.load() != this ) {
                throw std::logic_error( "Invalid coroutine for yield!" );
             }
             if( !can_yield( m_state ) ) {
@@ -516,13 +487,12 @@ __asm__(
 
          void resume_impl() noexcept
          {
-            implementation* prev_co = running();
-            m_previous = prev_co;
-            if( prev_co != nullptr ) {
-               assert( prev_co->state() == state::RUNNING );
-               prev_co->set_state( state::CALLING );
+            m_previous = running_coroutine.load();
+            if( m_previous != nullptr ) {
+               assert( m_previous->state() == state::RUNNING );
+               m_previous->set_state( state::CALLING );
             }
-            set_running( this );
+            running_coroutine.store( this );
             m_state = state::RUNNING;
             // atomic_signal_fence( std::memory_order::memory_order_seq_cst );
             atomic_thread_fence( std::memory_order::memory_order_seq_cst );
@@ -531,13 +501,12 @@ __asm__(
 
          void yield_impl()
          {
-            implementation* prev_co = m_previous;
-            m_previous = nullptr;
-            if( prev_co != nullptr ) {
-               assert( prev_co->state() == state::CALLING );
-               prev_co->set_state( state::RUNNING );
+            if( m_previous != nullptr ) {
+               assert( m_previous->state() == state::CALLING );
+               m_previous->set_state( state::RUNNING );
             }
-            set_running( prev_co );
+            running_coroutine.store( m_previous );
+            m_previous = nullptr;
             // atomic_signal_fence( std::memory_order::memory_order_seq_cst );
             atomic_thread_fence( std::memory_order::memory_order_seq_cst );
             _mini_coro_plus_switch( &m_contexts.this_ctx, &m_contexts.back_ctx );
@@ -557,7 +526,7 @@ __asm__(
 
    void yield_running()
    {
-      if( auto* t = internal::running() ) {
+      if( auto* t = internal::running_coroutine.load() ) {
          t->yield( mcp::state::SLEEPING );
       }
    }
