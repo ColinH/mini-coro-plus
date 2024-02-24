@@ -113,13 +113,35 @@ namespace mcp
 
    std::ostream& operator<<( std::ostream&, const state );
 
+   class control
+   {
+   public:
+      explicit control( internal::implementation* ) noexcept;
+
+      [[nodiscard]] mcp::state state() const noexcept;
+
+      [[nodiscard]] std::size_t stack_size() const noexcept;
+      [[nodiscard]] const void* stack_base() const noexcept;
+
+      void yield();  // Called from inside the coroutine function.
+
+   private:
+      internal::implementation* m_impl;
+   };
+
    class coroutine
    {
    public:
       explicit coroutine( std::function< void() >&&, const std::size_t stack_size = 0 );
       explicit coroutine( const std::function< void() >&, const std::size_t stack_size = 0 );
 
+      explicit coroutine( std::function< void( control& ) >&&, const std::size_t stack_size = 0 );
+      explicit coroutine( const std::function< void( control& ) >&, const std::size_t stack_size = 0 );
+
       [[nodiscard]] mcp::state state() const noexcept;
+
+      [[nodiscard]] std::size_t stack_size() const noexcept;
+      [[nodiscard]] const void* stack_base() const noexcept;
 
       void abort();  // Called from outside the coroutine function.
       void clear();  // Called from outside the coroutine function.

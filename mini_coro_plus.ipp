@@ -335,11 +335,6 @@ __asm__(
          void operator=( implementation&& ) = delete;
          void operator=( const implementation&& ) = delete;
 
-         void execute()
-         {
-            m_function();
-         }
-
          [[nodiscard]] std::size_t stack_size() const noexcept
          {
             return m_stack_size;
@@ -363,37 +358,6 @@ __asm__(
          void set_exception( std::exception_ptr&& ptr = std::exception_ptr() ) noexcept
          {
             m_exception = std::move( ptr );
-         }
-
-         [[nodiscard]] static std::shared_ptr< implementation > make( std::function< void() > function, const std::size_t requested )
-         {
-            const std::size_t page_size = get_page_size();
-            const std::size_t temp_size = calculate_stack_size( requested );
-            const std::size_t this_size = align_forward( sizeof( implementation ), align_quantum );
-            const std::size_t total_size = align_forward( temp_size + this_size, page_size );
-            const std::size_t stack_size = total_size - this_size - align_quantum;
-            const std::size_t alloc_size = total_size + page_size;
-
-            char *memory = static_cast< char* >( ::mmap( nullptr, alloc_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0 ) );
-
-            if( memory == MAP_FAILED ) {
-               throw std::bad_alloc();
-            }
-            if( ::mprotect( memory, page_size, PROT_NONE ) != 0 ) {
-               const int r = ::munmap( memory, alloc_size );
-               assert( r == 0 );
-               (void)r;
-               throw std::runtime_error( "Coroutine mprotect setup failed!" );
-            }
-            char* object = memory + alloc_size - this_size;
-            implementation* created = new( object ) implementation( std::move( function ), memory + page_size, stack_size );  // noexcept
-
-            return std::shared_ptr< implementation >( std::shared_ptr< void >( static_cast< void* >( memory ), [ created, alloc_size ]( void* ptr ) {
-               created->~implementation();
-               const int r = ::munmap( ptr, alloc_size );
-               assert( r == 0 );
-               (void)r;
-            } ), created );
          }
 
          void abort()
@@ -450,28 +414,17 @@ __asm__(
          }
 
       protected:
-         implementation( std::function< void() > function, void* stack_base, const std::size_t stack_size ) noexcept
-            : m_function( std::move( function ) ),
-              m_stack_base( stack_base ),
-              m_stack_size( stack_size )
-         {
-            init_context( this, reinterpret_cast< void* >( &main ), m_contexts.this_ctx, m_stack_base, m_stack_size );
-         }
+         double_context m_contexts;
+         std::exception_ptr m_exception;
+         mcp::state m_state = state::STARTING;
+         implementation* m_previous = nullptr;  // Intrusive single-linked list for where to yield to.
+         void* const m_stack_base;
+         const std::size_t m_stack_size;
 
-         static void main( implementation* co )
-         {
-            try {
-               co->execute();
-               co->set_exception();
-            }
-            catch( const terminator& ) {
-               co->set_exception();
-            }
-            catch( ... ) {
-               co->set_exception( std::current_exception() );
-            }
-            co->yield( state::COMPLETED );
-         }
+         implementation( void* stack_base, const std::size_t stack_size ) noexcept
+            : m_stack_base( stack_base ),
+              m_stack_size( stack_size )
+         {}
 
          void resume_impl() noexcept
          {
@@ -499,36 +452,161 @@ __asm__(
             atomic_thread_fence( std::memory_order::memory_order_seq_cst );
             _mini_coro_plus_switch( &m_contexts.this_ctx, &m_contexts.back_ctx );
          }
-
-         std::exception_ptr m_exception;
-         std::function< void() > m_function;
-         double_context m_contexts;
-         mcp::state m_state = state::STARTING;
-         implementation* m_previous = nullptr;  // Intrusive single-linked list for where to yield to.
-         void* const m_stack_base;
-         const std::size_t m_stack_size;
       };
+
+      template< typename F >
+      class coroutine;
+
+      template< typename F >
+      void coroutine_main( coroutine< F >* co )
+      {
+         try {
+            co->execute();
+            co->set_exception();
+         }
+         catch( const terminator& ) {
+            co->set_exception();
+         }
+         catch( ... ) {
+            co->set_exception( std::current_exception() );
+         }
+         co->yield( state::COMPLETED );
+      }
+
+      template<>
+      class coroutine< void() >
+         : public implementation
+      {
+      public:
+         using function_t = void();
+
+         coroutine( std::function< function_t > function, void* stack_base, const std::size_t stack_size ) noexcept
+            : implementation( stack_base, stack_size ),
+              m_function( std::move( function ) )
+         {
+            init_context( this, reinterpret_cast< void* >( &coroutine_main< function_t > ), m_contexts.this_ctx, m_stack_base, m_stack_size );
+         }
+
+         void execute()
+         {
+            m_function();
+         }
+
+      private:
+         std::function< function_t > m_function;
+      };
+
+      template<>
+      class coroutine< void( control& ) >
+         : public implementation
+      {
+      public:
+         using function_t = void( control& );
+
+         coroutine( std::function< function_t > function, void* stack_base, const std::size_t stack_size ) noexcept
+            : implementation( stack_base, stack_size ),
+              m_function( std::move( function ) )
+         {
+            init_context( this, reinterpret_cast< void* >( &coroutine_main< function_t > ), m_contexts.this_ctx, m_stack_base, m_stack_size );
+         }
+
+         void execute()
+         {
+            control c( this );
+            m_function( c );
+         }
+
+      private:
+         std::function< function_t > m_function;
+      };
+
+      template< typename F >
+      [[nodiscard]] static std::shared_ptr< implementation > make_shared( std::function< F > function, const std::size_t requested )
+      {
+         const std::size_t page_size = get_page_size();
+         const std::size_t temp_size = calculate_stack_size( requested );
+         const std::size_t this_size = align_forward( sizeof( coroutine< F > ), align_quantum );
+         const std::size_t total_size = align_forward( temp_size + this_size, page_size );
+         const std::size_t stack_size = total_size - this_size - align_quantum;
+         const std::size_t alloc_size = total_size + page_size;
+
+         char *memory = static_cast< char* >( ::mmap( nullptr, alloc_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0 ) );
+
+         if( memory == MAP_FAILED ) {
+            throw std::bad_alloc();
+         }
+         if( ::mprotect( memory, page_size, PROT_NONE ) != 0 ) {
+            const int r = ::munmap( memory, alloc_size );
+            assert( r == 0 );
+            (void)r;
+            throw std::runtime_error( "Coroutine mprotect setup failed!" );
+         }
+         char* object = memory + alloc_size - this_size;
+         coroutine< F >* created = new( object ) coroutine< F >( std::move( function ), memory + page_size, stack_size );  // noexcept
+
+         return std::shared_ptr< implementation >( std::shared_ptr< void >( static_cast< void* >( memory ), [ created, alloc_size ]( void* ptr ) {
+            created->~coroutine< F >();
+            const int r = ::munmap( ptr, alloc_size );
+            assert( r == 0 );
+            (void)r;
+         } ), created );
+      }
 
    }  // namespace internal
 
-   void yield_running()
+   control::control( internal::implementation* impl ) noexcept
+      : m_impl( impl )
+   {}
+
+   mcp::state control::state() const noexcept
    {
-      if( auto* t = internal::running_coroutine.load() ) {
-         t->yield( mcp::state::SLEEPING );
-      }
+      return bool( m_impl ) ? m_impl->state() : state::COMPLETED;
+   }
+
+   std::size_t control::stack_size() const noexcept
+   {
+      return m_impl->stack_size();
+   }
+
+   const void* control::stack_base() const noexcept
+   {
+      return m_impl->stack_base();
+   }
+
+   void control::yield()
+   {
+      m_impl->yield( mcp::state::SLEEPING );
    }
 
    coroutine::coroutine( std::function< void() >&& f, const std::size_t requested )
-      : m_impl( internal::implementation::make( std::move( f ), requested ) )
+      : m_impl( internal::make_shared( std::move( f ), requested ) )
    {}
 
    coroutine::coroutine( const std::function< void() >& f, const std::size_t requested )
-      : m_impl( internal::implementation::make( f, requested ) )
+      : m_impl( internal::make_shared( f, requested ) )
+   {}
+
+   coroutine::coroutine( std::function< void( control& ) >&& f, const std::size_t requested )
+      : m_impl( internal::make_shared( std::move( f ), requested ) )
+   {}
+
+   coroutine::coroutine( const std::function< void( control& ) >& f, const std::size_t requested )
+      : m_impl( internal::make_shared( f, requested ) )
    {}
 
    mcp::state coroutine::state() const noexcept
    {
       return bool( m_impl ) ? m_impl->state() : state::COMPLETED;
+   }
+
+   std::size_t coroutine::stack_size() const noexcept
+   {
+      return m_impl->stack_size();
+   }
+
+   const void* coroutine::stack_base() const noexcept
+   {
+      return m_impl->stack_base();
    }
 
    void coroutine::abort()
@@ -549,6 +627,13 @@ __asm__(
    void coroutine::yield()
    {
       m_impl->yield( mcp::state::SLEEPING );
+   }
+
+   void yield_running()
+   {
+      if( auto* t = internal::running_coroutine.load() ) {
+         t->yield( mcp::state::SLEEPING );
+      }
    }
 
    // TODO: A function to obtain how much stack is currently used in a running coroutine?
