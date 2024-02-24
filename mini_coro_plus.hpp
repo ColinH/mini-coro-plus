@@ -51,12 +51,15 @@
 #ifndef COLINH_MINI_CORO_PLUS_HPP
 #define COLINH_MINI_CORO_PLUS_HPP
 
+#include <any>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <string_view>
+#include <typeinfo>
 
 namespace mcp
 {
@@ -123,6 +126,30 @@ namespace mcp
 
       void yield();  // Called from inside the coroutine function.
 
+      template< typename T >
+      [[nodiscard]] T yield_as()
+      {
+         return std::any_cast< T >( yield_any() );
+      }
+
+      template< typename T >
+      [[nodiscard]] std::optional< T > yield_opt()
+      {
+         std::any& any = yield_any();
+         if( any.type() == typeid( T ) ) {
+            return { std::any_cast< T >( any ) };
+         }
+         return std::nullopt;
+      }
+
+      template< typename T >
+      [[nodiscard]] T* yield_ptr()
+      {
+         return std::any_cast< T >( &yield_any() );
+      }
+
+      [[nodiscard]] std::any& yield_any();
+
    private:
       internal::implementation* m_impl;
    };
@@ -144,6 +171,39 @@ namespace mcp
       void clear();  // Called from outside the coroutine function.
       void resume();  // Called from outside the coroutine function.
       void yield();  // Called from inside the coroutine function.
+
+      template< typename... Ts >
+      void resume( Ts&&... ts )
+      {
+         resume( std::any( std::forward< Ts >( ts )... ) );
+      }
+
+      template< typename T >
+      [[nodiscard]] T yield_as()
+      {
+         return std::any_cast< T >( yield_any() );
+      }
+
+      template< typename T >
+      [[nodiscard]] std::optional< T > yield_opt()
+      {
+         std::any& any = yield_any();
+         if( any.type() == typeid( T ) ) {
+            return { std::any_cast< T >( any ) };
+         }
+         return std::nullopt;
+      }
+
+      template< typename T >
+      [[nodiscard]] T* yield_ptr()
+      {
+         return std::any_cast< T >( &yield_any() );
+      }
+
+      void resume( std::any&& any );
+      void resume( const std::any& any );
+
+      [[nodiscard]] std::any& yield_any();
 
    protected:
       std::shared_ptr< internal::implementation > m_impl;

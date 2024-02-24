@@ -309,6 +309,22 @@ __asm__(
       static_assert( align_forward( min_stack_size, align_quantum ) == min_stack_size );
       static_assert( align_forward( default_stack_size, align_quantum ) == default_stack_size );
 
+      template< typename Coroutine >
+      void try_catch_main( Coroutine* co )
+      {
+         try {
+            co->execute();
+            co->set_exception();
+         }
+         catch( const terminator& ) {
+            co->set_exception();
+         }
+         catch( ... ) {
+            co->set_exception( std::current_exception() );
+         }
+         co->yield( state::COMPLETED );
+      }
+
       class implementation
       {
       public:
@@ -358,9 +374,19 @@ __asm__(
             return m_state;
          }
 
+         [[nodiscard]] std::any& transfer() noexcept
+         {
+            return m_transfer;
+         }
+
          void set_state( const mcp::state st ) noexcept
          {
             m_state = st;
+         }
+
+         void set_transfer( std::any&& any = std::any() ) noexcept
+         {
+            m_transfer = std::move( any );
          }
 
          void set_exception( std::exception_ptr&& ptr = std::exception_ptr() ) noexcept
@@ -416,9 +442,10 @@ __asm__(
          }
 
       protected:
-         double_context m_contexts;
+         std::any m_transfer;
          std::exception_ptr m_exception;
          mcp::state m_state = state::STARTING;
+         double_context m_contexts;
          implementation* m_previous = nullptr;  // Where to yield back to (intrusive linked list).
          void* const m_stack_base;
          const std::size_t m_stack_size;
@@ -457,38 +484,32 @@ __asm__(
          }
       };
 
+      template< typename Coroutine >
+      class initialization
+         : public implementation
+      {
+      protected:
+         initialization( void* stack_base, const std::size_t stack_size ) noexcept
+            : implementation( stack_base, stack_size )
+         {
+            init_context( this, reinterpret_cast< void* >( &try_catch_main< Coroutine > ), m_contexts.this_ctx, m_stack_base, m_stack_size );
+         }
+      };
+
       template< typename F >
       class coroutine;
 
-      template< typename Coroutine >
-      void try_catch_main( Coroutine* co )
-      {
-         try {
-            co->execute();
-            co->set_exception();
-         }
-         catch( const terminator& ) {
-            co->set_exception();
-         }
-         catch( ... ) {
-            co->set_exception( std::current_exception() );
-         }
-         co->yield( state::COMPLETED );
-      }
-
       template<>
       class coroutine< void() >
-         : public implementation
+         : public initialization< coroutine< void() > >
       {
       public:
          using function_t = void();
 
          coroutine( std::function< function_t > function, void* stack_base, const std::size_t stack_size ) noexcept
-            : implementation( stack_base, stack_size ),
+            : initialization< coroutine< function_t > >( stack_base, stack_size ),
               m_function( std::move( function ) )
-         {
-            init_context( this, reinterpret_cast< void* >( &try_catch_main< coroutine > ), m_contexts.this_ctx, m_stack_base, m_stack_size );
-         }
+         {}
 
          void execute()
          {
@@ -501,17 +522,15 @@ __asm__(
 
       template<>
       class coroutine< void( control& ) >
-         : public implementation
+         : public initialization< coroutine< void( control& ) > >
       {
       public:
          using function_t = void( control& );
 
          coroutine( std::function< function_t > function, void* stack_base, const std::size_t stack_size ) noexcept
-            : implementation( stack_base, stack_size ),
+            : initialization< coroutine< function_t > >( stack_base, stack_size ),
               m_function( std::move( function ) )
-         {
-            init_context( this, reinterpret_cast< void* >( &try_catch_main< coroutine > ), m_contexts.this_ctx, m_stack_base, m_stack_size );
-         }
+         {}
 
          void execute()
          {
@@ -576,6 +595,12 @@ __asm__(
       m_impl->yield( mcp::state::SLEEPING );
    }
 
+   std::any& control::yield_any()
+   {
+      m_impl->yield( mcp::state::SLEEPING );
+      return m_impl->transfer();
+   }
+
    coroutine::coroutine( std::function< void() >&& f, const std::size_t requested )
       : m_impl( internal::make_shared( std::move( f ), requested ) )
    {}
@@ -619,12 +644,30 @@ __asm__(
 
    void coroutine::resume()
    {
+      // m_impl->set_transfer();
       m_impl->resume();
    }
 
    void coroutine::yield()
    {
       m_impl->yield( mcp::state::SLEEPING );
+   }
+
+   void coroutine::resume( std::any&& any )
+   {
+      m_impl->set_transfer( std::move( any ) );
+      m_impl->resume();
+   }
+
+   void coroutine::resume( const std::any& any )
+   {
+      resume( std::any( any ) );
+   }
+
+   std::any& coroutine::yield_any()
+   {
+      m_impl->yield( mcp::state::SLEEPING );
+      return m_impl->transfer();
    }
 
    void yield_running()
