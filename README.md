@@ -3,7 +3,8 @@
 Minimalistic asymmetric stackful [coroutines](https://en.wikipedia.org/wiki/Coroutine) for C++17.
 
 Based on the design and implementation of [minicoro](https://github.com/edubart/minicoro) by Eduardo Bart.
-Uses assembly context switching code from (LuaCoco)[https://coco.luajit.org] by Mike Pall.
+
+Uses assembly context switching code from [LuaCoco](https://coco.luajit.org) by Mike Pall.
 
 ## Status
 
@@ -160,7 +161,7 @@ A coroutine object **must not** be used in multiple threads simultaneously as ba
 
 This project was started to answer to investigate whether it is possible to make [minicoro](https://github.com/edubart/minicoro) more C++ compatible.
 Two of the main points were (a) what is needed to make C++ exception propagate from inside a coroutine to outside, and (b) can the coroutine object itself use RAII to clean up after itself?
-Turns out, the answer is "yes", however the necessary changes are quite fundamental and not well suited for additional or optional inclusion in minicoro.
+Turns out, the answer is "yes", however the necessary changes are quite fundamental and probably not well suited for additional or optional inclusion in minicoro.
 
 ---
 
