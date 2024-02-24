@@ -88,6 +88,11 @@ namespace mcp
          void* sp = nullptr;
          void* lr = nullptr;
          void* d[ 8 ] = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr };
+
+         [[nodiscard]] const void* stack_pointer() const noexcept
+         {
+            return sp;
+         }
       };
 
       extern "C"
@@ -180,6 +185,11 @@ __asm__(
          void* r13 = nullptr;
          void* r14 = nullptr;
          void* r15 = nullptr;
+
+         [[nodiscard]] const void* stack_pointer() const noexcept
+         {
+            return rsp;
+         }
       };
 
       extern "C"
@@ -270,8 +280,8 @@ __asm__(
       thread_local std::atomic< implementation* > running_coroutine = { nullptr };
 
       inline constexpr std::size_t align_quantum = 16;
-      inline constexpr std::size_t min_stack_size = 2000;
-      inline constexpr std::size_t default_stack_size = 60000;
+      inline constexpr std::size_t min_stack_size = 1024 * 2;
+      inline constexpr std::size_t default_stack_size = 1024 * 42;
 
       [[nodiscard]] std::size_t get_page_size() noexcept
       {
@@ -343,6 +353,11 @@ __asm__(
          [[nodiscard]] const void* stack_base() const noexcept
          {
             return m_stack_base;
+         }
+
+         [[nodiscard]] std::size_t stack_used() const noexcept
+         {
+            return static_cast< const char* >( m_stack_base ) + m_stack_size - static_cast< const char* >( m_contexts.this_ctx.stack_pointer() );
          }
 
          [[nodiscard]] mcp::state state() const noexcept
@@ -457,8 +472,8 @@ __asm__(
       template< typename F >
       class coroutine;
 
-      template< typename F >
-      void coroutine_main( coroutine< F >* co )
+      template< typename Coroutine >
+      void try_catch_main( Coroutine* co )
       {
          try {
             co->execute();
@@ -484,7 +499,7 @@ __asm__(
             : implementation( stack_base, stack_size ),
               m_function( std::move( function ) )
          {
-            init_context( this, reinterpret_cast< void* >( &coroutine_main< function_t > ), m_contexts.this_ctx, m_stack_base, m_stack_size );
+            init_context( this, reinterpret_cast< void* >( &try_catch_main< coroutine > ), m_contexts.this_ctx, m_stack_base, m_stack_size );
          }
 
          void execute()
@@ -507,7 +522,7 @@ __asm__(
             : implementation( stack_base, stack_size ),
               m_function( std::move( function ) )
          {
-            init_context( this, reinterpret_cast< void* >( &coroutine_main< function_t > ), m_contexts.this_ctx, m_stack_base, m_stack_size );
+            init_context( this, reinterpret_cast< void* >( &try_catch_main< coroutine > ), m_contexts.this_ctx, m_stack_base, m_stack_size );
          }
 
          void execute()
@@ -530,7 +545,7 @@ __asm__(
          const std::size_t stack_size = total_size - this_size - align_quantum;
          const std::size_t alloc_size = total_size + page_size;
 
-         char *memory = static_cast< char* >( ::mmap( nullptr, alloc_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0 ) );
+         char* const memory = static_cast< char* >( ::mmap( nullptr, alloc_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0 ) );
 
          if( memory == MAP_FAILED ) {
             throw std::bad_alloc();
@@ -541,8 +556,8 @@ __asm__(
             (void)r;
             throw std::runtime_error( "Coroutine mprotect setup failed!" );
          }
-         char* object = memory + alloc_size - this_size;
-         coroutine< F >* created = new( object ) coroutine< F >( std::move( function ), memory + page_size, stack_size );  // noexcept
+         char* const object = memory + alloc_size - this_size;
+         coroutine< F >* const created = new( object ) coroutine< F >( std::move( function ), memory + page_size, stack_size );  // noexcept
 
          return std::shared_ptr< implementation >( std::shared_ptr< void >( static_cast< void* >( memory ), [ created, alloc_size ]( void* ptr ) {
             created->~coroutine< F >();
@@ -566,11 +581,6 @@ __asm__(
    std::size_t control::stack_size() const noexcept
    {
       return m_impl->stack_size();
-   }
-
-   const void* control::stack_base() const noexcept
-   {
-      return m_impl->stack_base();
    }
 
    void control::yield()
@@ -604,9 +614,9 @@ __asm__(
       return m_impl->stack_size();
    }
 
-   const void* coroutine::stack_base() const noexcept
+   std::size_t coroutine::stack_used() const noexcept
    {
-      return m_impl->stack_base();
+      return m_impl->stack_used();
    }
 
    void coroutine::abort()

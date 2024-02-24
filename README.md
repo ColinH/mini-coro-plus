@@ -50,13 +50,13 @@ $ ./hello
 Hello, World!
 ```
 
-## Create
+## Creating
 
 A coroutine is created with a `std::function< void() >`, and optionally a stack size.
 
 A newly created coroutine sits in state `STARTING` and does **not** implicitly jump into its function.
 
-## Resume
+## Running
 
 Running the coroutine function is achieve by calling `resume()` from outside the coroutine which puts the coroutine into state `RUNNING`.
 
@@ -72,7 +72,7 @@ It is an error to call any function other than `state()` on a coroutine in `COMP
 
 It is an error to call `abort()` on a coroutine that is in `RUNNING` or `CALLING` state.
 
-## Destroy
+## Destroying
 
 Destroying a coroutine object in states `RUNNING` or `CALLING` is an error.
 
@@ -128,6 +128,21 @@ protected:
 
 void yield_running();  // Global function to yield the current coroutine, if any.
 ```
+
+## Control Flow
+
+Assume that `coro` is an `mcp::coroutine` created with a closure, function or functor `F` as first argument.
+And remember that creating a coroutine does *not* yet call `F`.
+
+| Action | Where | What | Where | What |
+| --- | --- | --- | --- | --- |
+| Start | Outside | Call `coro.resume()` | Inside | `F()` is called |
+| Yield | Inside | Call `coro.yield()` | Outside | `coro.resume()` returns |
+| Resume | Outside | Call `coro.resume()` | Inside | `coro.yield()` returns |
+| Finish | Inside | Return from `F()` | Outside | `coro.resume()` returns |
+| Throw | Inside | `F()` throws `E` | Outside | `coro.resume()` throws `E` |
+
+A coroutine can be resumed multiple times, until it finishes or throws.
 
 ## Multithreading
 

@@ -119,9 +119,7 @@ namespace mcp
       explicit control( internal::implementation* ) noexcept;
 
       [[nodiscard]] mcp::state state() const noexcept;
-
       [[nodiscard]] std::size_t stack_size() const noexcept;
-      [[nodiscard]] const void* stack_base() const noexcept;
 
       void yield();  // Called from inside the coroutine function.
 
@@ -139,9 +137,8 @@ namespace mcp
       explicit coroutine( const std::function< void( control& ) >&, const std::size_t stack_size = 0 );
 
       [[nodiscard]] mcp::state state() const noexcept;
-
       [[nodiscard]] std::size_t stack_size() const noexcept;
-      [[nodiscard]] const void* stack_base() const noexcept;
+      [[nodiscard]] std::size_t stack_used() const noexcept;
 
       void abort();  // Called from outside the coroutine function.
       void clear();  // Called from outside the coroutine function.
