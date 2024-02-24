@@ -272,29 +272,28 @@ __asm__(
          single_context back_ctx;
       };
 
-      [[nodiscard]] constexpr bool nop_abort( const state st ) noexcept
-      {
-         return ( st == state::STARTING ) || ( st == state::COMPLETED );
-      }
-
-      thread_local std::atomic< implementation* > running_coroutine = { nullptr };
+      struct terminator {};
 
       inline constexpr std::size_t align_quantum = 16;
       inline constexpr std::size_t min_stack_size = 1024 * 2;
       inline constexpr std::size_t default_stack_size = 1024 * 42;
+
+      thread_local std::atomic< implementation* > running_coroutine = { nullptr };
 
       [[nodiscard]] std::size_t get_page_size() noexcept
       {
          return ::sysconf( _SC_PAGESIZE );
       }
 
+      [[nodiscard]] constexpr bool nop_abort( const state st ) noexcept
+      {
+         return ( st == state::STARTING ) || ( st == state::COMPLETED );
+      }
+
       [[nodiscard]] constexpr std::size_t align_forward( const std::size_t addr, const std::size_t align ) noexcept
       {
          return ( addr + ( align - 1 ) ) & ~( align - 1 );
       }
-
-      static_assert( align_forward( min_stack_size, align_quantum ) == min_stack_size );
-      static_assert( align_forward( default_stack_size, align_quantum ) == default_stack_size );
 
       [[nodiscard]] constexpr std::size_t calculate_stack_size( const std::size_t requested ) noexcept
       {
@@ -307,7 +306,8 @@ __asm__(
          return align_forward( requested, align_quantum );
       }
 
-      struct terminator {};
+      static_assert( align_forward( min_stack_size, align_quantum ) == min_stack_size );
+      static_assert( align_forward( default_stack_size, align_quantum ) == default_stack_size );
 
       class implementation
       {
@@ -317,26 +317,19 @@ __asm__(
 
          ~implementation()
          {
-            switch( m_state ) {
-               case state::STARTING:
-               case state::COMPLETED:
-                  return;
-               case state::RUNNING:
-               case state::CALLING:
-                  // This should never happen unless somebody seriously messed
-                  // up the lifetime of the coroutine wrt. the calling code.
-                  assert( !bool( "Destroying active coroutine!" ) );
-                  std::terminate();
-               case state::SLEEPING:
-                  break;
+            if( nop_abort( m_state ) ) {
+               return;
+            }
+            if( m_state != state::SLEEPING ) {
+               assert( !bool( "Destroying active coroutine!" ) );
+               std::terminate();
             }
             try {
+               assert( !m_exception );
                m_exception = std::make_exception_ptr( terminator() );
                resume_impl();
             }
             catch( ... ) {
-               // This should never happen unless the cleanup in the
-               // coroutine throws an exception from a destructor.
                assert( !bool( "Exception while destroying coroutine!" ) );
                std::terminate();
             }
@@ -385,10 +378,7 @@ __asm__(
                throw std::logic_error( "Invalid state for coroutine abort!" );
             }
             assert( !m_exception );
-            assert( m_previous == nullptr );
-
             m_exception = std::make_exception_ptr( terminator() );
-
             resume_impl();
 
             if( m_exception ) {
@@ -402,8 +392,6 @@ __asm__(
                throw std::logic_error( "Invalid state for coroutine resume!" );
             }
             assert( !m_exception );
-            assert( m_previous == nullptr );
-
             resume_impl();
 
             if( m_exception ) {
@@ -420,7 +408,6 @@ __asm__(
                throw std::logic_error( "Invalid state for coroutine yield!" );
             }
             m_state = st;
-
             yield_impl();
 
             if( m_exception ) {
@@ -432,7 +419,7 @@ __asm__(
          double_context m_contexts;
          std::exception_ptr m_exception;
          mcp::state m_state = state::STARTING;
-         implementation* m_previous = nullptr;  // Intrusive single-linked list for where to yield to.
+         implementation* m_previous = nullptr;  // Where to yield back to (intrusive linked list).
          void* const m_stack_base;
          const std::size_t m_stack_size;
 
@@ -443,6 +430,7 @@ __asm__(
 
          void resume_impl() noexcept
          {
+            assert( m_previous == nullptr );
             m_previous = running_coroutine.load();
             if( m_previous != nullptr ) {
                assert( m_previous->state() == state::RUNNING );
