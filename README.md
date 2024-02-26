@@ -127,7 +127,6 @@ protected:
    std::shared_ptr< internal::implementation > m_impl;
 };
 
-void yield_running();  // Global function to yield the current coroutine, if any.
 ```
 
 ## Control Flow

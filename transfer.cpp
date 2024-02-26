@@ -10,14 +10,16 @@
 
 void function( mcp::control& ctrl )
 {
-   const int i = ctrl.yield_as< int >();
+   std::string s = "test";
+   const int i = ctrl.yield_as< int >( s );
    std::cout << i << std::endl;
 }
 
 int main()
 {
    mcp::coroutine coro( function );
-   coro.resume();
+   const auto s = coro.resume_as< std::string >();
+   std::cout << s << std::endl;
    coro.resume( 42 );
    return 0;
 }

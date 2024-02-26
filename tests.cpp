@@ -74,15 +74,15 @@ namespace mcp::test
    {
       coroutine( [](){} );
       {
-         coroutine coro( [](){} );
+         coroutine coro( []( control& ){} );
          MCP_TEST_ASSERT( coro.state() == state::STARTING );
          coro.abort();
          MCP_TEST_ASSERT( coro.state() == state::COMPLETED );
-         MCP_TEST_THROWS( coro.yield() );
+         MCP_TEST_THROWS( control().yield() );
          MCP_TEST_THROWS( coro.resume() );
          coro.abort();
          MCP_TEST_ASSERT( coro.state() == state::COMPLETED );
-         MCP_TEST_THROWS( coro.yield() );
+         MCP_TEST_THROWS( control().yield() );
          MCP_TEST_THROWS( coro.resume() );
       } {
          coroutine coro( [](){} );
@@ -107,7 +107,7 @@ namespace mcp::test
             for( std::size_t i = 0; i < 1000; ++i ) {
                MCP_TEST_ASSERT( c == i );
                ++c;
-               yield_running();
+               control().yield();
             }
          } );
          for( coro.resume(); coro.state() != state::COMPLETED; coro.resume() ) {
@@ -126,13 +126,13 @@ namespace mcp::test
          MCP_TEST_ASSERT( t == 0 );
          coroutine outer( [ & ](){
             MCP_TEST_ASSERT( t++ == 1 );
-            coroutine inner( [ & ](){
+            coroutine inner( [ & ]( control& ctrl ){
                MCP_TEST_ASSERT( t++ == 3 );
-               inner.yield();
+               control().yield();
                MCP_TEST_THROWS( inner.abort() );
                MCP_TEST_THROWS( inner.resume() );
                MCP_TEST_ASSERT( t++ == 5 );
-               inner.yield();
+               ctrl.yield();
                MCP_TEST_ASSERT( t++ == 7 );
             } );
             MCP_TEST_ASSERT( inner.state() == state::STARTING );
@@ -158,10 +158,11 @@ namespace mcp::test
          coroutine outer( [ & ](){
             MCP_TEST_ASSERT( t++ == 1 );
             coroutine inner( [ & ](){
+               control ctrl;
                MCP_TEST_ASSERT( t++ == 3 );
-               inner.yield();
+               ctrl.yield();
                MCP_TEST_ASSERT( t++ == 5 );
-               inner.yield();
+               ctrl.yield();
                MCP_TEST_ASSERT( t++ == 8 );
             } );
             MCP_TEST_ASSERT( inner.state() == state::STARTING );
@@ -169,10 +170,10 @@ namespace mcp::test
             inner.resume();
             MCP_TEST_ASSERT( t++ == 4 );
             inner.resume();
-            outer.yield();
+            control().yield();
             MCP_TEST_ASSERT( t++ == 7 );
             inner.resume();
-            outer.yield();
+            control().yield();
             MCP_TEST_ASSERT( t++ == 10 );
             MCP_TEST_ASSERT( inner.state() == state::COMPLETED );
          } );
@@ -214,9 +215,9 @@ namespace mcp::test
          MCP_TEST_ASSERT( outer.state() == state::COMPLETED );
       } {
          std::size_t c = 0;
-         coroutine coro( [ & ](){
+         coroutine coro( [ & ]( control& ctrl ){
             cycle y( c );
-            coro.yield();
+            ctrl.yield();
             c = 42;
          } );
          MCP_TEST_ASSERT( c == 0 );

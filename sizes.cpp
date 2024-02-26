@@ -12,19 +12,19 @@ int sum;
 
 void function()
 {
-   mcp::yield_running();
+   mcp::control().yield();
    char a[ 128 ];
-   mcp::yield_running();
+   mcp::control().yield();
    for( std::size_t i = 0; i < sizeof( a ); ++i ) {
       sum += a[ i ];
    }
-   mcp::yield_running();
+   mcp::control().yield();
    char b[ 1024 ];
-   mcp::yield_running();
+   mcp::control().yield();
    for( std::size_t i = 0; i < sizeof( b ); ++i ) {
       sum += b[ i ];
    }
-   mcp::yield_running();
+   mcp::control().yield();
 }
 
 int main()

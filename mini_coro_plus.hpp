@@ -119,36 +119,54 @@ namespace mcp
    class control
    {
    public:
-      explicit control( internal::implementation* ) noexcept;
+      control();
 
-      [[nodiscard]] mcp::state state() const noexcept;
+      explicit control( internal::implementation* );
+
+      [[nodiscard]] mcp::state state() const noexcept;  // If the result is NOT state::RUNNING then the control object was passed somewhere it shouldn't be.
       [[nodiscard]] std::size_t stack_size() const noexcept;
 
-      void yield();  // Called from inside the coroutine function.
+      void yield();
+      void yield( std::any&& any );
+      void yield( const std::any& any );
 
-      template< typename T >
-      [[nodiscard]] T yield_as()
+      [[nodiscard]] std::any& yield_any();
+      [[nodiscard]] std::any& yield_any( std::any&& any );
+      [[nodiscard]] std::any& yield_any( const std::any& any );
+
+      template< typename... Ts >
+      void yield( Ts&&... ts )
       {
-         return std::any_cast< T >( yield_any() );
+         yield( std::any( std::forward< Ts >( ts )... ) );
       }
 
-      template< typename T >
-      [[nodiscard]] std::optional< T > yield_opt()
+      template< typename... Ts >
+      [[nodiscard]] std::any& yield_any( Ts&&... ts )
       {
-         std::any& any = yield_any();
+         return yield_any( std::any( std::forward< Ts >( ts )... ) );
+      }
+
+      template< typename T, typename... As >
+      [[nodiscard]] T yield_as( As&&... as )
+      {
+         return std::any_cast< T >( yield_any( std::forward< As >( as )... ) );
+      }
+
+      template< typename T, typename... As >
+      [[nodiscard]] std::optional< T > yield_opt( As&&... as )
+      {
+         std::any& any = yield_any( std::forward< As >( as )... );
          if( any.type() == typeid( T ) ) {
             return { std::any_cast< T >( any ) };
          }
          return std::nullopt;
       }
 
-      template< typename T >
-      [[nodiscard]] T* yield_ptr()
+      template< typename T, typename... As >
+      [[nodiscard]] T* yield_ptr( As&&... as )
       {
-         return std::any_cast< T >( &yield_any() );
+         return std::any_cast< T >( &yield_any( std::forward< As >( as )... ) );
       }
-
-      [[nodiscard]] std::any& yield_any();
 
    private:
       internal::implementation* m_impl;
@@ -165,12 +183,17 @@ namespace mcp
 
       [[nodiscard]] mcp::state state() const noexcept;
       [[nodiscard]] std::size_t stack_size() const noexcept;
-      [[nodiscard]] std::size_t stack_used() const noexcept;
+      [[nodiscard]] std::size_t stack_used() const noexcept;  // Not very precise?
 
-      void abort();  // Called from outside the coroutine function.
-      void clear();  // Called from outside the coroutine function.
-      void resume();  // Called from outside the coroutine function.
-      void yield();  // Called from inside the coroutine function.
+      void abort();
+      void clear();
+      void resume();
+      void resume( std::any&& any );
+      void resume( const std::any& any );
+
+      [[nodiscard]] std::any& resume_any();
+      [[nodiscard]] std::any& resume_any( std::any&& any );
+      [[nodiscard]] std::any& resume_any( const std::any& any );
 
       template< typename... Ts >
       void resume( Ts&&... ts )
@@ -178,38 +201,37 @@ namespace mcp
          resume( std::any( std::forward< Ts >( ts )... ) );
       }
 
-      template< typename T >
-      [[nodiscard]] T yield_as()
+      template< typename... Ts >
+      [[nodiscard]] std::any& resume_any( Ts&&... ts )
       {
-         return std::any_cast< T >( yield_any() );
+         return resume_any( std::any( std::forward< Ts >( ts )... ) );
       }
 
-      template< typename T >
-      [[nodiscard]] std::optional< T > yield_opt()
+      template< typename T, typename... As >
+      [[nodiscard]] T resume_as( As&&... as )
       {
-         std::any& any = yield_any();
+         return std::any_cast< T >( resume_any( std::forward< As >( as )... ) );
+      }
+
+      template< typename T, typename... As >
+      [[nodiscard]] std::optional< T > resume_opt( As&&... as )
+      {
+         std::any& any = resume_any( std::forward< As >( as )... );
          if( any.type() == typeid( T ) ) {
             return { std::any_cast< T >( any ) };
          }
          return std::nullopt;
       }
 
-      template< typename T >
-      [[nodiscard]] T* yield_ptr()
+      template< typename T, typename... As >
+      [[nodiscard]] T* resume_ptr( As&&... as )
       {
-         return std::any_cast< T >( &yield_any() );
+         return std::any_cast< T >( &resume_any( std::forward< As >( as )... ) );
       }
-
-      void resume( std::any&& any );
-      void resume( const std::any& any );
-
-      [[nodiscard]] std::any& yield_any();
 
    protected:
       std::shared_ptr< internal::implementation > m_impl;
    };
-
-   void yield_running();  // Global function to yield the current coroutine, if any.
 
 }  // namespace mcp
 

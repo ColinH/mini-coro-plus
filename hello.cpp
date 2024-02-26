@@ -11,7 +11,7 @@
 void function()
 {
    std::cout << "Hello, ";
-   mcp::yield_running();
+   mcp::control().yield();
    std::cout << "World!\n";
 }
 

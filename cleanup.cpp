@@ -29,7 +29,7 @@ struct raii
 void function()
 {
    raii r;
-   mcp::yield_running();
+   mcp::control().yield();
    std::cout << "This should NOT be printed!\n";
 }
 

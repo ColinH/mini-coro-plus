@@ -8,10 +8,10 @@
 #include "mini_coro_plus.hpp"
 #include "mini_coro_plus.ipp"
 
-void function()
+void function( mcp::control& ctrl )
 {
    std::cout << "This is printed.\n";
-   mcp::yield_running();
+   ctrl.yield();
    std::cout << "This should NOT be printed!\n";
 }
 

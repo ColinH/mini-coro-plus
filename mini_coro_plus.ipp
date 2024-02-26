@@ -374,9 +374,14 @@ __asm__(
             return m_state;
          }
 
-         [[nodiscard]] std::any& transfer() noexcept
+         [[nodiscard]] std::any& xfer_r2y() noexcept
          {
-            return m_transfer;
+            return m_xfer_r2y;
+         }
+
+         [[nodiscard]] std::any& xfer_y2r() noexcept
+         {
+            return m_xfer_y2r;
          }
 
          void set_state( const mcp::state st ) noexcept
@@ -384,9 +389,14 @@ __asm__(
             m_state = st;
          }
 
-         void set_transfer( std::any&& any = std::any() ) noexcept
+         void set_xfer_r2y( std::any&& any = std::any() ) noexcept
          {
-            m_transfer = std::move( any );
+            m_xfer_r2y = std::move( any );
+         }
+
+         void set_xfer_y2r( std::any&& any = std::any() ) noexcept
+         {
+            m_xfer_y2r = std::move( any );
          }
 
          void set_exception( std::exception_ptr&& ptr = std::exception_ptr() ) noexcept
@@ -442,7 +452,8 @@ __asm__(
          }
 
       protected:
-         std::any m_transfer;
+         std::any m_xfer_r2y;
+         std::any m_xfer_y2r;
          std::exception_ptr m_exception;
          mcp::state m_state = state::STARTING;
          double_context m_contexts;
@@ -576,9 +587,17 @@ __asm__(
 
    }  // namespace internal
 
-   control::control( internal::implementation* impl ) noexcept
-      : m_impl( impl )
+   control::control()
+      : control( internal::running_coroutine.load() )
    {}
+
+   control::control( internal::implementation* impl )
+      : m_impl( impl )
+   {
+      if( !m_impl ) {
+         throw std::logic_error( "Creating control outside of running coroutine!" );
+      }
+   }
 
    mcp::state control::state() const noexcept
    {
@@ -592,13 +611,37 @@ __asm__(
 
    void control::yield()
    {
+      m_impl->set_xfer_y2r();
       m_impl->yield( mcp::state::SLEEPING );
+   }
+
+   void control::yield( std::any&& any )
+   {
+      m_impl->set_xfer_y2r( std::move( any ) );
+      m_impl->yield( mcp::state::SLEEPING );
+   }
+
+   void control::yield( const std::any& any )
+   {
+      yield( std::any( any ) );
    }
 
    std::any& control::yield_any()
    {
-      m_impl->yield( mcp::state::SLEEPING );
-      return m_impl->transfer();
+      yield();
+      return m_impl->xfer_r2y();
+   }
+
+   std::any& control::yield_any( std::any&& any )
+   {
+      yield( std::move( any ) );
+      return m_impl->xfer_r2y();
+   }
+
+   std::any& control::yield_any( const std::any& any )
+   {
+      yield( any );
+      return m_impl->xfer_r2y();
    }
 
    coroutine::coroutine( std::function< void() >&& f, const std::size_t requested )
@@ -644,18 +687,13 @@ __asm__(
 
    void coroutine::resume()
    {
-      // m_impl->set_transfer();
+      m_impl->set_xfer_r2y();
       m_impl->resume();
-   }
-
-   void coroutine::yield()
-   {
-      m_impl->yield( mcp::state::SLEEPING );
    }
 
    void coroutine::resume( std::any&& any )
    {
-      m_impl->set_transfer( std::move( any ) );
+      m_impl->set_xfer_r2y( std::move( any ) );
       m_impl->resume();
    }
 
@@ -664,21 +702,25 @@ __asm__(
       resume( std::any( any ) );
    }
 
-   std::any& coroutine::yield_any()
+   std::any& coroutine::resume_any()
    {
-      m_impl->yield( mcp::state::SLEEPING );
-      return m_impl->transfer();
+      resume();
+      return m_impl->xfer_y2r();
    }
 
-   void yield_running()
+   std::any& coroutine::resume_any( std::any&& any )
    {
-      if( auto* t = internal::running_coroutine.load() ) {
-         t->yield( mcp::state::SLEEPING );
-      }
+      resume( std::move( any ) );
+      return m_impl->xfer_y2r();
+   }
+
+   std::any& coroutine::resume_any( const std::any& any )
+   {
+      resume( any );
+      return m_impl->xfer_y2r();
    }
 
    // TODO: A function to obtain how much stack is currently used in a running coroutine?
-   // TODO: A function to obtain how much stack is currently used in a suspended coroutine?
 
 }  // namespace mcp
 
