@@ -16,7 +16,7 @@ Currently only x86-64 and AArch64 are supported and only on Posix-compatible pla
 
 A traditional "hello world" example.
 
-The `.ipp` file contains the library implementation and must be included in exactly one translation unit of the project.
+The `.ipp` file contains the library implementation and must be included in exactly one translation unit.
 The `.hpp` file contains the interface and can be included as often as required.
 
 ```c++
@@ -25,37 +25,44 @@ The `.hpp` file contains the interface and can be included as often as required.
 #include "mini_coro_plus.hpp"
 #include "mini_coro_plus.ipp"
 
-void function()
+void function( mcp::control& ctrl )
 {
-   std::cout << "Hello, ";
-   mcp::yield_running();
-   std::cout << "World!\n";
+   std::cout << "Hello";
+   ctrl.yield();
+   std::cout << "World!";
 }
 
 int main()
 {
    mcp::coroutine coro( function );
    coro.resume();
+   std::cout << ", ";
    coro.resume();
+   std::cout << std::endl;
    return 0;
 }
 ```
 
-A [lambda expression](https://en.cppreference.com/w/cpp/language/lambda) can be used as first argument to the coroutine constructor.
-
-How to compile the example when not using the included `Makefile`.
+To compile this example best use the included `Makefile` that builds all included `.cpp` files into corresponding executables -- and runs the `tests`.
+The "hello world" example can then be invoked manually.
 
 ```
-$ g++ -std=c++17 -O3 -Wall -Wextra hello.cpp -o hello
-$ ./hello
+mini-coro-plus> make
+c++ -std=c++17 -stdlib=libc++ -pedantic -MM -MQ build/dep/hello.d hello.cpp -o build/dep/hello.d
+c++ -std=c++17 -stdlib=libc++ -pedantic -Wall -Wextra -Werror -O3 hello.cpp  -o build/bin/hello
+build/bin/tests
+mcp: all testcases succeeded
+mini-coro-plus> build/bin/hello
 Hello, World!
 ```
 
 ## Creating
 
-A coroutine is created with a `std::function< void() >`, and optionally a stack size.
+A coroutine is created with a `std::function< void() >`, and, optionally, a stack size.
 
-A newly created coroutine sits in state `STARTING` and does **not** implicitly jump into its function.
+As usual this means that function pointers, function objects (aka. functors) and closures (evaluated lambda expressions) can be passed as first argument.
+
+A newly created coroutine sits in state `STARTING` and does **not** implicitly jump into its coroutine function!
 
 ## Running
 
@@ -64,7 +71,7 @@ Running the coroutine function is achieve by calling `resume()` from outside the
 This call to `resume()` will return when one of the following conditions is met:
 
  1. The coroutine function returns. The coroutine enters state `COMPLETED` and may **not** be resumed again.
- 2. The coroutine function calls `yield()`. The coroutine enters state `SLEEPING` and can be resumed again later. Resuming continues execution of the coroutine function after the aforementioned  `yield()`.
+ 2. The coroutine function calls `ctrl.yield()` on a suitable instance of `mcp::control`. The coroutine enters state `SLEEPING` and can be resumed again later. Resuming continues execution of the coroutine function after the aforementioned  `yield()`.
  3. The coroutine function throws an exception. The coroutine enters state `COMPLETED` and may **not** be resumed again. In this case the call to `resume()` will throw the coroutine's exception rather than returning normally.
 
 If the `resume()` is performed by another coroutine (itself in `RUNNING` state) then this calling coroutine transitions to state `CALLING`.
@@ -89,43 +96,106 @@ Calling `abort()` on a coroutine performs the cleanup for coroutines in state `S
 
 ## Interface
 
-This library resides in `namespace mcp`.
-The namespace is omitted from the following exposition.
+The following is an annotated excerpt of `mini_coro_plus.hpp` with all parts that are not considered part of the public interface removed.
 
 ```c++
-enum class state : std::uint8_t
+namespace mcp
 {
-   STARTING,  // Created without entering the coroutine function.
-   RUNNING,   // Entered the coroutine function and currently running it.
-   SLEEPING,  // Entered the coroutine which then yielded back out again.
-   CALLING,   // Entered the coroutine which then resumed a different one.
-   COMPLETED  // Finished the coroutine function to completion.
-};
+   enum class state : std::uint8_t
+   {
+      STARTING,  // Created without entering the coroutine function.
+      RUNNING,   // Entered the coroutine function and currently running it.
+      SLEEPING,  // Entered the coroutine which then yielded back out again.
+      CALLING,   // Entered the coroutine which then resumed a different one.
+      COMPLETED  // Finished the coroutine function to completion.
+   };
 
-[[nodiscard]] constexpr bool can_abort( const state ) noexcept;
-[[nodiscard]] constexpr bool can_resume( const state ) noexcept;
-[[nodiscard]] constexpr bool can_yield( const state ) noexcept;
+   [[nodiscard]] constexpr bool can_abort( const state ) noexcept;
+   [[nodiscard]] constexpr bool can_resume( const state ) noexcept;
+   [[nodiscard]] constexpr bool can_yield( const state ) noexcept;
 
-[[nodiscard]] constexpr std::string_view to_string( const state ) noexcept;
+   [[nodiscard]] constexpr std::string_view to_string( const state ) noexcept;
 
-std::ostream& operator<<( std::ostream&, const state );
+   std::ostream& operator<<( std::ostream&, const state );
 
-class coroutine
-{
-public:
-   explicit coroutine( std::function< void() >&&, const std::size_t stack_size = 0 );
-   explicit coroutine( const std::function< void() >&, const std::size_t stack_size = 0 );
+   // Control is for running oroutine functions to control their coroutine.
 
-   [[nodiscard]] mcp::state state() const noexcept;
+   class control
+   {
+   public:
+      control();
 
-   void abort();  // Called from outside the coroutine function.
-   void clear();  // Called from outside the coroutine function.
-   void resume();  // Called from outside the coroutine function.
-   void yield();  // Called from within the coroutine function.
+      [[nodiscard]] mcp::state state() const noexcept;  // Always state::RUNNING when used correctly.
+      [[nodiscard]] std::size_t stack_size() const noexcept;
 
-protected:
-   std::shared_ptr< internal::implementation > m_impl;
-};
+      void yield();
+      void yield( std::any&& any );
+      void yield( const std::any& any );
+
+      [[nodiscard]] std::any& yield_any();
+      [[nodiscard]] std::any& yield_any( std::any&& any );
+      [[nodiscard]] std::any& yield_any( const std::any& any );
+
+      template< typename... Ts >
+      void yield( Ts&&... ts );
+
+      template< typename... Ts >
+      [[nodiscard]] std::any& yield_any( Ts&&... ts );
+
+      template< typename T, typename... As >
+      [[nodiscard]] T yield_as( As&&... as );
+
+      template< typename T, typename... As >
+      [[nodiscard]] std::optional< T > yield_opt( As&&... as );
+
+      template< typename T, typename... As >
+      [[nodiscard]] T* yield_ptr( As&&... as );
+   };
+
+   // Coroutine is for creating and controlling coroutines from the outside.
+
+   class coroutine
+   {
+   public:
+      explicit coroutine( std::function< void() >&&, const std::size_t stack_size = 0 );
+      explicit coroutine( const std::function< void() >&, const std::size_t stack_size = 0 );
+
+      explicit coroutine( std::function< void( control& ) >&&, const std::size_t stack_size = 0 );
+      explicit coroutine( const std::function< void( control& ) >&, const std::size_t stack_size = 0 );
+
+      [[nodiscard]] mcp::state state() const noexcept;
+      [[nodiscard]] std::size_t stack_size() const noexcept;
+      [[nodiscard]] std::size_t stack_used() const noexcept;  // Not very precise?
+
+      void abort();
+      void clear();
+      void resume();
+      void resume( std::any&& any );
+      void resume( const std::any& any );
+
+      [[nodiscard]] std::any& resume_any();
+      [[nodiscard]] std::any& resume_any( std::any&& any );
+      [[nodiscard]] std::any& resume_any( const std::any& any );
+
+      template< typename... Ts >
+      void resume( Ts&&... ts );
+
+      template< typename... Ts >
+      [[nodiscard]] std::any& resume_any( Ts&&... ts );
+
+      template< typename T, typename... As >
+      [[nodiscard]] T resume_as( As&&... as );
+
+      template< typename T, typename... As >
+      [[nodiscard]] std::optional< T > resume_opt( As&&... as );
+
+      template< typename T, typename... As >
+      [[nodiscard]] T* resume_ptr( As&&... as );
+   };
+
+}  // namespace mcp
+
+#endif
 
 ```
 
@@ -137,8 +207,8 @@ And remember that creating a coroutine does *not* yet call `F`.
 | Action | Where | What | Where | What |
 | --- | --- | --- | --- | --- |
 | Start | Outside | Call `coro.resume()` | Inside | `F()` is called |
-| Yield | Inside | Call `coro.yield()` | Outside | `coro.resume()` returns |
-| Resume | Outside | Call `coro.resume()` | Inside | `coro.yield()` returns |
+| Yield | Inside | Call `ctrl.yield()` | Outside | `coro.resume()` returns |
+| Resume | Outside | Call `coro.resume()` | Inside | `ctrl.yield()` returns |
 | Finish | Inside | Return from `F()` | Outside | `coro.resume()` returns |
 | Throw | Inside | `F()` throws `E` | Outside | `coro.resume()` throws `E` |
 
@@ -149,12 +219,11 @@ A coroutine can be resumed multiple times, until it finishes or throws.
 This library is essentially thread agnostic and compatible with multi-threaded applications.
 
 In a multi-threaded application it is safe for multiple threads to create and run coroutines.
-The global `yield_running()` function applies to any coroutine running on the current thread.
+Calling `mcp::control().yield()` applies to the coroutine running on the current thread.
+It is an error to call from outside of a running coroutine.
 
 Coroutines can be created on one thread and resumed on a different thread.
-The usual care needs to be taken regarding concurrent access to shared data and the lifecycle of shared data.
-
-A coroutine object **must not** be used in multiple threads simultaneously as bad things **will** happen.
+The usual care needs to be taken as a coroutine object **must not** be used in multiple threads simultaneously as bad things **will** happen.
 
 ## Development
 
