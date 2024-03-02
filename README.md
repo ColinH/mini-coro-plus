@@ -194,15 +194,11 @@ namespace mcp
    };
 
 }  // namespace mcp
-
-#endif
-
 ```
 
 ## Control Flow
 
-Assume that `coro` is an `mcp::coroutine` created with a closure, function or functor `F` as first argument.
-And remember that creating a coroutine does *not* yet call `F`.
+Assume that `coro` is an `mcp::coroutine` created with a closure, function or functor `F` as first argument, and that `ctrl` is an `mcp::control` for said coroutine obtained either by using the default constructor within a running coroutine or as argument to `F`.
 
 | Action | Where | What | Where | What |
 | --- | --- | --- | --- | --- |
@@ -212,7 +208,8 @@ And remember that creating a coroutine does *not* yet call `F`.
 | Finish | Inside | Return from `F()` | Outside | `coro.resume()` returns |
 | Throw | Inside | `F()` throws `E` | Outside | `coro.resume()` throws `E` |
 
-A coroutine can be resumed multiple times, until it finishes or throws.
+Remember that creating a coroutine does *not* yet call `F`.
+A coroutine can be resumed multiple times, until it finishes by returning from or throwing an exception within `F`.
 
 ## Multithreading
 
