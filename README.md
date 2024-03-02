@@ -96,7 +96,7 @@ Calling `abort()` on a coroutine performs the cleanup for coroutines in state `S
 
 ## Interface
 
-The following is an annotated excerpt of `mini_coro_plus.hpp` with all parts that are not considered part of the public interface removed.
+The following is an excerpt of `mini_coro_plus.hpp` with all parts that are not considered part of the public interface removed.
 
 ```c++
 namespace mcp
@@ -118,7 +118,7 @@ namespace mcp
 
    std::ostream& operator<<( std::ostream&, const state );
 
-   // Control is for running oroutine functions to control their coroutine.
+   // Control is for coroutine functions to control the coroutine they are currently running in.
 
    class control
    {
