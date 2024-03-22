@@ -213,7 +213,7 @@ A coroutine can be resumed multiple times, until it finishes by returning from o
 
 ## Multithreading
 
-This library is essentially thread agnostic and compatible with multi-threaded applications.
+This library is thread agnostic and compatible with multi-threaded applications.
 
 In a multi-threaded application it is safe for multiple threads to create and run coroutines.
 Calling `mcp::control().yield()` applies to the coroutine running on the current thread.
@@ -224,9 +224,9 @@ The usual care needs to be taken as a coroutine object **must not** be used in m
 
 ## Development
 
-This project was started to answer to investigate whether it is possible to make [minicoro](https://github.com/edubart/minicoro) more C++ compatible.
-Two of the main points were (a) what is needed to make C++ exception propagate from inside a coroutine to outside, and (b) can the coroutine object itself use RAII to clean up after itself?
-Turns out, the answer is "yes", however the necessary changes are quite fundamental and probably not well suited for additional or optional inclusion in minicoro.
+This project was started to investigate whether it is possible to make [minicoro](https://github.com/edubart/minicoro) more C++ compatible.
+The main questions were (a) how can C++ exceptions propagate from inside a coroutine to outside, and (b) can the coroutine object itself use RAII to clean up after itself?
+Turns out we can demonstrate here that the answer is "yes", however we can also see that the changes are quite intrusive, and therefore not well suited for additional or optional inclusion in [minicoro](https://github.com/edubart/minicoro).
 
 ---
 
